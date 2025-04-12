@@ -3,38 +3,6 @@
 {% block title %}Настройки{% endblock %}
 
 {% block content %}
-<div class="container">
-    <h1 class="title">Настройки</h1>
-    
-    <div class="form-container">
-        <h2>HTTPS Настройки</h2>
-        <form id="https-form">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <div class="form-group">
-                <label>
-                    <input type="checkbox" name="use_https" id="use-https" {% if use_https %}checked{% endif %}>
-                    Использовать HTTPS
-                </label>
-            </div>
-            <button type="submit" class="button">Сохранить</button>
-        </form>
-        
-        <h3>Управление сертификатами</h3>
-        <button id="generate-test-certs" class="button">Создать тестовые сертификаты</button>
-        
-        <form id="upload-certs-form" enctype="multipart/form-data">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <div class="form-group">
-                <label>Сертификат (cert.pem)</label>
-                <input type="file" name="cert_file" accept=".pem,.crt" required>
-            </div>
-            <div class="form-group">
-                <label>Ключ (key.pem)</label>
-                <input type="file" name="key_file" accept=".pem,.key" required>
-            </div>
-            <button type="submit" class="button">Загрузить сертификаты</button>
-        </form>
-    </div>
 
     <div class="form-container">
         <h2>Изменить порт</h2>
@@ -81,5 +49,4 @@
         {% endif %}
     {% endwith %}
 </div>
-<script src="{{ url_for('static', filename='assets/js/settings.js') }}"></script>
 {% endblock %}

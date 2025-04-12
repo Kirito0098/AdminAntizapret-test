@@ -124,6 +124,11 @@ install() {
   apt-get update -qq
   check_error "Не удалось обновить пакеты"
 
+    # Установка Nginx и certbot
+  echo "${YELLOW}Установка Nginx и Certbot...${NC}"
+  apt-get install -y -qq nginx certbot python3-certbot-nginx
+  check_error "Не удалось установить Nginx и Certbot"
+
   # Установка зависимостей
   echo "${YELLOW}Установка системных зависимостей...${NC}"
   apt-get install -y -qq python3 python3-pip python3-venv git wget
@@ -185,6 +190,32 @@ Environment="PYTHONUNBUFFERED=1"
 [Install]
 WantedBy=multi-user.target
 EOL
+
+# Добавим новую функцию для настройки Nginx
+configure_nginx() {
+  echo "${YELLOW}Настройка Nginx...${NC}"
+  
+  # Создаем конфиг для Nginx
+  cat > "/etc/nginx/sites-available/$SERVICE_NAME" <<EOL
+server {
+    listen 80;
+    server_name _;
+
+    location / {
+        proxy_pass http://127.0.0.1:$APP_PORT;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+EOL
+
+  # Активируем конфиг
+  ln -sf "/etc/nginx/sites-available/$SERVICE_NAME" "/etc/nginx/sites-enabled/"
+  systemctl restart nginx
+  check_error "Не удалось настроить Nginx"
+}
 
   # Включение и запуск сервиса
   systemctl daemon-reload

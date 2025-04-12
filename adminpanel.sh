@@ -217,6 +217,16 @@ install() {
   printf "└────────────────────────────────────────────┘\n"
   printf "%s\n" "${NC}"
 
+  # Клонирование репозитория
+  echo "${YELLOW}Клонирование репозитория...${NC}"
+   if [ -d "$INSTALL_DIR/.git" ]; then
+  echo "${YELLOW}Директория уже существует, обновляем...${NC}"
+  cd "$INSTALL_DIR" && git pull
+  else
+    git clone "$REPO_URL" "$INSTALL_DIR" > /dev/null 2>&1
+  fi
+  check_error "Не удалось клонировать репозиторий"
+  
   # Запрос параметров
   read -p "Введите порт для сервиса [$DEFAULT_PORT]: " APP_PORT
   APP_PORT=${APP_PORT:-$DEFAULT_PORT}
@@ -310,15 +320,6 @@ install() {
     fi
   fi
 
-  # Клонирование репозитория
-  echo "${YELLOW}Клонирование репозитория...${NC}"
-   if [ -d "$INSTALL_DIR/.git" ]; then
-  echo "${YELLOW}Директория уже существует, обновляем...${NC}"
-  cd "$INSTALL_DIR" && git pull
-  else
-    git clone "$REPO_URL" "$INSTALL_DIR" > /dev/null 2>&1
-  fi
-  check_error "Не удалось клонировать репозиторий"
 
   # Создание директории и копирование скрипта
   echo "${YELLOW}Копирование adminpanel.sh в /root/adminpanel/...${NC}"

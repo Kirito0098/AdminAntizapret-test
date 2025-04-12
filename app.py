@@ -22,8 +22,20 @@ use_https = os.getenv("USE_HTTPS", "false").lower() == "true"
 ssl_cert_path = os.getenv("SSL_CERT_PATH")
 ssl_key_path = os.getenv("SSL_KEY_PATH")
 
+# Исправленная обработка порта
+port_str = os.getenv('APP_PORT', '5050')
+if ':' in port_str:
+    # Если указан хост:порт (127.0.0.1:5050)
+    host, port = port_str.split(':')
+else:
+    # Если указан только порт (5050)
+    host = '0.0.0.0'
+    port = port_str
 
-port = int(os.getenv('APP_PORT', '5050'))
+try:
+    port = int(port)
+except ValueError:
+    port = 5050  # Значение по умолчанию при ошибке
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY")
@@ -551,6 +563,6 @@ def settings():
 if __name__ == '__main__':
     if use_https and ssl_cert_path and ssl_key_path and os.path.exists(ssl_cert_path) and os.path.exists(ssl_key_path):
         context = (ssl_cert_path, ssl_key_path)
-        app.run(host='0.0.0.0', port=port, ssl_context=context)
+        app.run(host=host, port=port, ssl_context=context)
     else:
-        app.run(host='0.0.0.0', port=port)
+        app.run(host=host, port=port)

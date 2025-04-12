@@ -61,7 +61,7 @@ check_error() {
 
 # Проверка прав root
 check_root() {
-  if [ "$(id -u)" -ne 0; then
+  if [ "$(id -u)" -ne 0]; then
     printf "%s\n" "${RED}Этот скрипт должен быть запущен с правами root!${NC}" >&2
     exit 1
   fi

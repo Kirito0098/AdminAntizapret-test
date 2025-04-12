@@ -61,7 +61,7 @@ check_error() {
 
 # Проверка прав root
 check_root() {
-  if [ "$(id -u)" -ne 0 ]; then
+  if [ "$(id -u)" -ne 0; then
     printf "%s\n" "${RED}Этот скрипт должен быть запущен с правами root!${NC}" >&2
     exit 1
   fi
@@ -261,6 +261,24 @@ install() {
           ;;
       esac
     fi
+  else
+    read -p "Хотите использовать HTTPS без Nginx? (y/n): " use_https
+    if [ "$use_https" = "y" ]; then
+        echo "${YELLOW}Настройка HTTPS без Nginx...${NC}"
+        # Генерация самоподписанного сертификата
+        mkdir -p "$INSTALL_DIR/ssl"
+        openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+            -keyout "$INSTALL_DIR/ssl/privkey.pem" \
+            -out "$INSTALL_DIR/ssl/fullchain.pem" \
+            -subj "/CN=$(hostname)"
+        
+        # Добавляем SSL параметры в .env
+        echo "SSL_CERT=$INSTALL_DIR/ssl/fullchain.pem" >> "$INSTALL_DIR/.env"
+        echo "SSL_KEY=$INSTALL_DIR/ssl/privkey.pem" >> "$INSTALL_DIR/.env"
+        echo "USE_HTTPS=true" >> "$INSTALL_DIR/.env"
+    else
+        echo "USE_HTTPS=false" >> "$INSTALL_DIR/.env"
+    fi
   fi
 
   # Обновление пакетов
@@ -379,7 +397,13 @@ EOL
         echo "│ Адрес: http://$domain_name"
       fi
     else
-      echo "│ Адрес: http://$(hostname -I | awk '{print $1}'):$APP_PORT"
+      if grep -q "USE_HTTPS=true" "$INSTALL_DIR/.env"; then
+        echo "│ Адрес: https://$(hostname -I | awk '{print $1}'):$APP_PORT"
+        echo "│ ВНИМАНИЕ: Используется самоподписанный сертификат!"
+        echo "│ Браузер может предупреждать о небезопасном соединении."
+      else
+        echo "│ Адрес: http://$(hostname -I | awk '{print $1}'):$APP_PORT"
+      fi
     fi
     echo "│"
     echo "│ Для входа используйте учетные данные,"

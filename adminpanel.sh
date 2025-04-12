@@ -182,8 +182,10 @@ echo "${YELLOW}Настройка конфигурации...${NC}"
 
 if [[ "$ENABLE_HTTPS" == "y" ]]; then
   USE_HTTPS=true
-  SSL_CERT_PATH="$INSTALL_DIR/cert.pem"
-  SSL_KEY_PATH="$INSTALL_DIR/key.pem"
+  CERT_DIR="$INSTALL_DIR/cert"
+  mkdir -p "$CERT_DIR"
+  SSL_CERT_PATH="$CERT_DIR/cert.pem"
+  SSL_KEY_PATH="$CERT_DIR/key.pem"
 else
   USE_HTTPS=false
   SSL_CERT_PATH=""

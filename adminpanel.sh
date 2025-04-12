@@ -248,7 +248,6 @@ install() {
   cat > "$INSTALL_DIR/.env" <<EOL
 SECRET_KEY='$SECRET_KEY'
 APP_PORT=$APP_PORT
-USE_HTTPS=false
 EOL
   chmod 600 "$INSTALL_DIR/.env"
 

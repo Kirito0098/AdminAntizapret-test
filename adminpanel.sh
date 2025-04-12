@@ -22,7 +22,7 @@ DB_FILE="$INSTALL_DIR/users.db"
 ANTIZAPRET_INSTALL_DIR="/root/antizapret"
 ANTIZAPRET_INSTALL_SCRIPT="https://raw.githubusercontent.com/GubernievS/AntiZapret-VPN/main/setup.sh"
 NGINX_CONF_DIR="/etc/nginx/conf.d"
-SSL_CERT_DIR="/etc/letsencrypt/live"
+SSL_CERT_DIR="/etc/nginx/ssl"
 
 # Генерируем случайный секретный ключ
 SECRET_KEY=$(openssl rand -hex 32)
@@ -92,32 +92,41 @@ install_nginx() {
     echo "${GREEN}Nginx успешно установлен и запущен!${NC}"
 }
 
-# Настройка SSL с Let's Encrypt
-setup_letsencrypt() {
+# Генерация самоподписанного сертификата
+generate_self_signed_cert() {
     domain=$1
-    email=$2
     
-    echo "${YELLOW}Установка certbot для получения SSL сертификата...${NC}"
-    apt-get install -y -qq certbot python3-certbot-nginx
-    check_error "Не удалось установить certbot"
+    echo "${YELLOW}Генерация самоподписанного сертификата для $domain...${NC}"
     
-    echo "${YELLOW}Получение SSL сертификата для домена $domain...${NC}"
-    certbot --nginx -d $domain --non-interactive --agree-tos -m $email
-    check_error "Не удалось получить SSL сертификат"
+    # Создаем директорию для сертификатов
+    mkdir -p "$SSL_CERT_DIR/$domain"
     
-    # Настройка автоматического обновления сертификата
-    (crontab -l 2>/dev/null; echo "0 12 * * * /usr/bin/certbot renew --quiet") | crontab -
-    echo "${GREEN}SSL сертификат успешно установлен и настроено автоматическое обновление!${NC}"
+    # Генерируем ключ и сертификат
+    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+        -keyout "$SSL_CERT_DIR/$domain/privkey.pem" \
+        -out "$SSL_CERT_DIR/$domain/fullchain.pem" \
+        -subj "/CN=$domain" \
+        -addext "subjectAltName = DNS:$domain"
+    
+    check_error "Не удалось сгенерировать самоподписанный сертификат"
+    
+    echo "${GREEN}Самоподписанный сертификат успешно создан!${NC}"
 }
 
 # Настройка Nginx в качестве прокси
 setup_nginx_proxy() {
     domain=$1
     use_https=$2
+    ssl_type=$3
     
     echo "${YELLOW}Настройка Nginx в качестве прокси...${NC}"
     
     if [ "$use_https" = "y" ]; then
+        if [ "$ssl_type" = "selfsigned" ]; then
+            # Генерируем самоподписанный сертификат
+            generate_self_signed_cert "$domain"
+        fi
+        
         # Конфигурация с HTTPS
         cat > "$NGINX_CONF_DIR/admin-antizapret.conf" <<EOL
 server {
@@ -221,19 +230,36 @@ install() {
   # Запрос доменного имени для Nginx
   read -p "Хотите использовать Nginx в качестве прокси? (y/n): " use_nginx
   if [ "$use_nginx" = "y" ]; then
-    read -p "Введите доменное имя (например, vpn.example.com): " domain_name
+    read -p "Введите доменное имя или IP-адрес сервера: " domain_name
     if [ -z "$domain_name" ]; then
-      echo "${RED}Доменное имя не может быть пустым!${NC}"
+      echo "${RED}Доменное имя/IP не может быть пустым!${NC}"
       exit 1
     fi
     
-    read -p "Хотите настроить HTTPS с Let's Encrypt? (y/n): " use_https
+    read -p "Хотите настроить HTTPS? (y/n): " use_https
     if [ "$use_https" = "y" ]; then
-      read -p "Введите email для Let's Encrypt: " email
-      if [ -z "$email" ]; then
-        echo "${RED}Email не может быть пустым!${NC}"
-        exit 1
-      fi
+      echo "${YELLOW}Выберите тип SSL сертификата:${NC}"
+      echo "1) Let's Encrypt (необходимо доменное имя с DNS)"
+      echo "2) Самоподписанный сертификат"
+      read -p "Ваш выбор [1-2]: " ssl_choice
+      
+      case $ssl_choice in
+        1)
+          read -p "Введите email для Let's Encrypt: " email
+          if [ -z "$email" ]; then
+            echo "${RED}Email не может быть пустым!${NC}"
+            exit 1
+          fi
+          ssl_type="letsencrypt"
+          ;;
+        2)
+          ssl_type="selfsigned"
+          ;;
+        *)
+          echo "${RED}Неверный выбор!${NC}"
+          exit 1
+          ;;
+      esac
     fi
   fi
 
@@ -244,15 +270,25 @@ install() {
 
   # Установка зависимостей
   echo "${YELLOW}Установка системных зависимостей...${NC}"
-  apt-get install -y -qq python3 python3-pip python3-venv git wget
+  apt-get install -y -qq python3 python3-pip python3-venv git wget openssl
   check_error "Не удалось установить зависимости"
 
   # Установка Nginx если требуется
   if [ "$use_nginx" = "y" ]; then
     install_nginx
     
-    if [ "$use_https" = "y" ]; then
-      setup_letsencrypt "$domain_name" "$email"
+    if [ "$use_https" = "y" ] && [ "$ssl_type" = "letsencrypt" ]; then
+      echo "${YELLOW}Установка certbot для получения SSL сертификата...${NC}"
+      apt-get install -y -qq certbot python3-certbot-nginx
+      check_error "Не удалось установить certbot"
+      
+      echo "${YELLOW}Получение SSL сертификата для домена $domain_name...${NC}"
+      certbot --nginx -d $domain_name --non-interactive --agree-tos -m $email
+      check_error "Не удалось получить SSL сертификат"
+      
+      # Настройка автоматического обновления сертификата
+      (crontab -l 2>/dev/null; echo "0 12 * * * /usr/bin/certbot renew --quiet") | crontab -
+      echo "${GREEN}SSL сертификат успешно установлен и настроено автоматическое обновление!${NC}"
     fi
   fi
 
@@ -321,7 +357,7 @@ EOL
 
   # Настройка Nginx если требуется
   if [ "$use_nginx" = "y" ]; then
-    setup_nginx_proxy "$domain_name" "$use_https"
+    setup_nginx_proxy "$domain_name" "$use_https" "$ssl_type"
   fi
 
   # Проверка установки AntiZapret-VPN
@@ -335,6 +371,10 @@ EOL
     if [ "$use_nginx" = "y" ]; then
       if [ "$use_https" = "y" ]; then
         echo "│ Адрес: https://$domain_name"
+        if [ "$ssl_type" = "selfsigned" ]; then
+          echo "│ ВНИМАНИЕ: Используется самоподписанный сертификат!"
+          echo "│ Браузер может предупреждать о небезопасном соединении."
+        fi
       else
         echo "│ Адрес: http://$domain_name"
       fi

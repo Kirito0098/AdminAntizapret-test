@@ -118,25 +118,6 @@ install() {
     echo "${RED}Порт $APP_PORT уже занят!${NC}"
     read -p "Введите другой порт: " APP_PORT
   done
-
-# Выбор HTTPS
-read -p "Включить HTTPS с самоподписанным сертификатом? (y/n): " ENABLE_HTTPS
-ENABLE_HTTPS=${ENABLE_HTTPS,,} # Приводим к нижнему регистру
-
-if [[ "$ENABLE_HTTPS" == "y" ]]; then
-  HTTPS_ENABLED=true
-  SSL_CERT_PATH="$INSTALL_DIR/cert.pem"
-  SSL_KEY_PATH="$INSTALL_DIR/key.pem"
-
-  echo "${YELLOW}Создание самоподписанного SSL сертификата...${NC}"
-  openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-    -keyout "$SSL_KEY_PATH" -out "$SSL_CERT_PATH" \
-    -subj "/C=RU/ST=Russia/L=Moscow/O=AdminAntizapret/OU=Dev/CN=localhost"
-  check_error "Не удалось создать SSL сертификат"
-else
-  HTTPS_ENABLED=false
-fi
-
   # Обновление пакетов
   echo "${YELLOW}Обновление списка пакетов...${NC}"
   apt-get update -qq
@@ -156,6 +137,27 @@ fi
     git clone "$REPO_URL" "$INSTALL_DIR" > /dev/null 2>&1
   fi
   check_error "Не удалось клонировать репозиторий"
+  
+# Генерация SSL, если включено
+read -p "Включить HTTPS с самоподписанным сертификатом? (y/n): " ENABLE_HTTPS
+ENABLE_HTTPS=${ENABLE_HTTPS,,}
+
+if [[ "$ENABLE_HTTPS" == "y" ]]; then
+  HTTPS_ENABLED=true
+  SSL_CERT_PATH="$INSTALL_DIR/cert.pem"
+  SSL_KEY_PATH="$INSTALL_DIR/key.pem"
+
+  echo "${YELLOW}Создание самоподписанного SSL сертификата...${NC}"
+  openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+    -keyout "$SSL_KEY_PATH" -out "$SSL_CERT_PATH" \
+    -subj "/C=RU/ST=Russia/L=Moscow/O=AdminAntizapret/OU=Dev/CN=localhost"
+  check_error "Не удалось создать SSL сертификат"
+else
+  HTTPS_ENABLED=false
+  SSL_CERT_PATH=""
+  SSL_KEY_PATH=""
+fi
+
 
   # Создание директории и копирование скрипта
   echo "${YELLOW}Копирование adminpanel.sh в /root/adminpanel/...${NC}"

@@ -16,11 +16,13 @@ INSTALL_DIR="/opt/AdminAntizapret"
 VENV_PATH="$INSTALL_DIR/venv"
 SERVICE_NAME="admin-antizapret"
 DEFAULT_PORT="5050"
-REPO_URL="git@github.com:Kirito0098/AdminAntizapret-test.git"
+REPO_URL="https://github.com/Kirito0098/AdminAntizapret.git"
 APP_PORT="$DEFAULT_PORT"
 DB_FILE="$INSTALL_DIR/users.db"
 ANTIZAPRET_INSTALL_DIR="/root/antizapret"
 ANTIZAPRET_INSTALL_SCRIPT="https://raw.githubusercontent.com/GubernievS/AntiZapret-VPN/main/setup.sh"
+NGINX_CONF_DIR="/etc/nginx/conf.d"
+SSL_CERT_DIR="/etc/letsencrypt/live"
 
 # Генерируем случайный секретный ключ
 SECRET_KEY=$(openssl rand -hex 32)
@@ -80,6 +82,103 @@ check_antizapret_installed() {
   fi
 }
 
+# Установка Nginx
+install_nginx() {
+    echo "${YELLOW}Установка Nginx...${NC}"
+    apt-get install -y -qq nginx
+    check_error "Не удалось установить Nginx"
+    systemctl enable nginx
+    systemctl start nginx
+    echo "${GREEN}Nginx успешно установлен и запущен!${NC}"
+}
+
+# Настройка SSL с Let's Encrypt
+setup_letsencrypt() {
+    domain=$1
+    email=$2
+    
+    echo "${YELLOW}Установка certbot для получения SSL сертификата...${NC}"
+    apt-get install -y -qq certbot python3-certbot-nginx
+    check_error "Не удалось установить certbot"
+    
+    echo "${YELLOW}Получение SSL сертификата для домена $domain...${NC}"
+    certbot --nginx -d $domain --non-interactive --agree-tos -m $email
+    check_error "Не удалось получить SSL сертификат"
+    
+    # Настройка автоматического обновления сертификата
+    (crontab -l 2>/dev/null; echo "0 12 * * * /usr/bin/certbot renew --quiet") | crontab -
+    echo "${GREEN}SSL сертификат успешно установлен и настроено автоматическое обновление!${NC}"
+}
+
+# Настройка Nginx в качестве прокси
+setup_nginx_proxy() {
+    domain=$1
+    use_https=$2
+    
+    echo "${YELLOW}Настройка Nginx в качестве прокси...${NC}"
+    
+    if [ "$use_https" = "y" ]; then
+        # Конфигурация с HTTPS
+        cat > "$NGINX_CONF_DIR/admin-antizapret.conf" <<EOL
+server {
+    listen 80;
+    server_name $domain;
+    return 301 https://\$host\$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name $domain;
+
+    ssl_certificate $SSL_CERT_DIR/$domain/fullchain.pem;
+    ssl_certificate_key $SSL_CERT_DIR/$domain/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+    ssl_ciphers "EECDH+AESGCM:EDH+AESGCM:AES256+EECDH:AES256+EDH";
+
+    location / {
+        proxy_pass http://127.0.0.1:$APP_PORT;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
+    location /static/ {
+        alias $INSTALL_DIR/static/;
+    }
+}
+EOL
+    else
+        # Конфигурация без HTTPS
+        cat > "$NGINX_CONF_DIR/admin-antizapret.conf" <<EOL
+server {
+    listen 80;
+    server_name $domain;
+
+    location / {
+        proxy_pass http://127.0.0.1:$APP_PORT;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
+    location /static/ {
+        alias $INSTALL_DIR/static/;
+    }
+}
+EOL
+    fi
+    
+    # Проверка конфигурации Nginx
+    nginx -t
+    check_error "Ошибка в конфигурации Nginx"
+    
+    systemctl reload nginx
+    echo "${GREEN}Nginx успешно настроен в качестве прокси!${NC}"
+}
+
 # Установка AntiZapret-VPN
 install_antizapret() {
   echo "${YELLOW}Установка AntiZapret-VPN...${NC}"
@@ -119,6 +218,25 @@ install() {
     read -p "Введите другой порт: " APP_PORT
   done
 
+  # Запрос доменного имени для Nginx
+  read -p "Хотите использовать Nginx в качестве прокси? (y/n): " use_nginx
+  if [ "$use_nginx" = "y" ]; then
+    read -p "Введите доменное имя (например, vpn.example.com): " domain_name
+    if [ -z "$domain_name" ]; then
+      echo "${RED}Доменное имя не может быть пустым!${NC}"
+      exit 1
+    fi
+    
+    read -p "Хотите настроить HTTPS с Let's Encrypt? (y/n): " use_https
+    if [ "$use_https" = "y" ]; then
+      read -p "Введите email для Let's Encrypt: " email
+      if [ -z "$email" ]; then
+        echo "${RED}Email не может быть пустым!${NC}"
+        exit 1
+      fi
+    fi
+  fi
+
   # Обновление пакетов
   echo "${YELLOW}Обновление списка пакетов...${NC}"
   apt-get update -qq
@@ -128,6 +246,15 @@ install() {
   echo "${YELLOW}Установка системных зависимостей...${NC}"
   apt-get install -y -qq python3 python3-pip python3-venv git wget
   check_error "Не удалось установить зависимости"
+
+  # Установка Nginx если требуется
+  if [ "$use_nginx" = "y" ]; then
+    install_nginx
+    
+    if [ "$use_https" = "y" ]; then
+      setup_letsencrypt "$domain_name" "$email"
+    fi
+  fi
 
   # Клонирование репозитория
   echo "${YELLOW}Клонирование репозитория...${NC}"
@@ -156,12 +283,12 @@ install() {
   check_error "Не удалось установить Python-зависимости"
 
   # Настройка конфигурации
-echo "${YELLOW}Настройка конфигурации...${NC}"
-cat > "$INSTALL_DIR/.env" <<EOL
+  echo "${YELLOW}Настройка конфигурации...${NC}"
+  cat > "$INSTALL_DIR/.env" <<EOL
 SECRET_KEY='$SECRET_KEY'
 APP_PORT=$APP_PORT
 EOL
-chmod 600 "$INSTALL_DIR/.env"
+  chmod 600 "$INSTALL_DIR/.env"
 
   # Инициализация базы данных
   init_db
@@ -192,6 +319,11 @@ EOL
   systemctl start "$SERVICE_NAME"
   check_error "Не удалось запустить сервис"
 
+  # Настройка Nginx если требуется
+  if [ "$use_nginx" = "y" ]; then
+    setup_nginx_proxy "$domain_name" "$use_https"
+  fi
+
   # Проверка установки AntiZapret-VPN
   echo "${YELLOW}Проверка установки AntiZapret-VPN...${NC}"
   sleep 3
@@ -200,7 +332,15 @@ EOL
     echo "┌────────────────────────────────────────────┐"
     echo "│   Установка успешно завершена!             │"
     echo "├────────────────────────────────────────────┤"
-    echo "│ Адрес: http://$(hostname -I | awk '{print $1}'):$APP_PORT"
+    if [ "$use_nginx" = "y" ]; then
+      if [ "$use_https" = "y" ]; then
+        echo "│ Адрес: https://$domain_name"
+      else
+        echo "│ Адрес: http://$domain_name"
+      fi
+    else
+      echo "│ Адрес: http://$(hostname -I | awk '{print $1}'):$APP_PORT"
+    fi
     echo "│"
     echo "│ Для входа используйте учетные данные,"
     echo "│ созданные при инициализации базы данных"

@@ -21,6 +21,8 @@ APP_PORT="$DEFAULT_PORT"
 DB_FILE="$INSTALL_DIR/users.db"
 ANTIZAPRET_INSTALL_DIR="/root/antizapret"
 ANTIZAPRET_INSTALL_SCRIPT="https://raw.githubusercontent.com/GubernievS/AntiZapret-VPN/main/setup.sh"
+DOMAIN=""
+EMAIL=""
 
 # Генерируем случайный секретный ключ
 SECRET_KEY=$(openssl rand -hex 32)
@@ -100,6 +102,68 @@ init_db() {
   check_error "Не удалось инициализировать базу данных"
 }
 
+# Установка Nginx с Let's Encrypt
+setup_nginx_letsencrypt() {
+    echo "${YELLOW}Установка Nginx и Let's Encrypt...${NC}"
+    
+    # Установка Nginx
+    apt-get install -y -qq nginx
+    check_error "Не удалось установить Nginx"
+    
+    # Установка Certbot
+    apt-get install -y -qq certbot python3-certbot-nginx
+    check_error "Не удалось установить Certbot"
+    
+    # Настройка Nginx
+    cat > /etc/nginx/sites-available/admin-antizapret <<EOL
+server {
+    listen 80;
+    server_name $DOMAIN;
+    
+    location / {
+        proxy_pass http://127.0.0.1:$APP_PORT;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+EOL
+    
+    ln -s /etc/nginx/sites-available/admin-antizapret /etc/nginx/sites-enabled/
+    systemctl restart nginx
+    
+    # Получение сертификата
+    certbot --nginx -d $DOMAIN --non-interactive --agree-tos -m $EMAIL
+    check_error "Не удалось получить сертификат Let's Encrypt"
+    
+    # Настройка автоматического обновления
+    (crontab -l 2>/dev/null; echo "0 12 * * * /usr/bin/certbot renew --quiet") | crontab -
+    
+    echo "${GREEN}Nginx с Let's Encrypt успешно настроен!${NC}"
+}
+
+# Установка с самоподписанным сертификатом
+setup_selfsigned() {
+    echo "${YELLOW}Настройка самоподписанного сертификата...${NC}"
+    
+    # Создание сертификата
+    mkdir -p /etc/ssl/private
+    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+        -keyout /etc/ssl/private/admin-antizapret.key \
+        -out /etc/ssl/certs/admin-antizapret.crt \
+        -subj "/CN=$(hostname)"
+    
+    # Настройка конфигурации Flask для HTTPS
+    cat >> "$INSTALL_DIR/.env" <<EOL
+USE_HTTPS=true
+SSL_CERT=/etc/ssl/certs/admin-antizapret.crt
+SSL_KEY=/etc/ssl/private/admin-antizapret.key
+EOL
+    
+    echo "${GREEN}Самоподписанный сертификат успешно создан!${NC}"
+}
+
 # Установка AdminAntizapret
 install() {
   clear
@@ -119,6 +183,30 @@ install() {
     read -p "Введите другой порт: " APP_PORT
   done
 
+  # Выбор способа установки
+  echo "${YELLOW}Выберите способ установки:${NC}"
+  echo "1) Nginx + Let's Encrypt (рекомендуется)"
+  echo "2) Самоподписанный сертификат"
+  echo "3) Только HTTP (без HTTPS)"
+  read -p "Ваш выбор [1-3]: " ssl_choice
+
+  case $ssl_choice in
+    1)
+      read -p "Введите доменное имя (например, example.com): " DOMAIN
+      read -p "Введите email для Let's Encrypt: " EMAIL
+      ;;
+    2)
+      setup_selfsigned
+      ;;
+    3)
+      echo "${YELLOW}Будет использовано HTTP соединение без шифрования${NC}"
+      ;;
+    *)
+      echo "${RED}Неверный выбор!${NC}"
+      exit 1
+      ;;
+  esac
+
   # Обновление пакетов
   echo "${YELLOW}Обновление списка пакетов...${NC}"
   apt-get update -qq
@@ -126,14 +214,14 @@ install() {
 
   # Установка зависимостей
   echo "${YELLOW}Установка системных зависимостей...${NC}"
-  apt-get install -y -qq python3 python3-pip python3-venv git wget
+  apt-get install -y -qq python3 python3-pip python3-venv git wget openssl
   check_error "Не удалось установить зависимости"
 
   # Клонирование репозитория
   echo "${YELLOW}Клонирование репозитория...${NC}"
   if [ -d "$INSTALL_DIR" ]; then
-  echo "${YELLOW}Директория уже существует, обновляем...${NC}"
-  cd "$INSTALL_DIR" && git pull
+    echo "${YELLOW}Директория уже существует, обновляем...${NC}"
+    cd "$INSTALL_DIR" && git pull
   else
     git clone "$REPO_URL" "$INSTALL_DIR" > /dev/null 2>&1
   fi
@@ -156,12 +244,13 @@ install() {
   check_error "Не удалось установить Python-зависимости"
 
   # Настройка конфигурации
-echo "${YELLOW}Настройка конфигурации...${NC}"
-cat > "$INSTALL_DIR/.env" <<EOL
+  echo "${YELLOW}Настройка конфигурации...${NC}"
+  cat > "$INSTALL_DIR/.env" <<EOL
 SECRET_KEY='$SECRET_KEY'
 APP_PORT=$APP_PORT
+USE_HTTPS=false
 EOL
-chmod 600 "$INSTALL_DIR/.env"
+  chmod 600 "$INSTALL_DIR/.env"
 
   # Инициализация базы данных
   init_db
@@ -192,6 +281,19 @@ EOL
   systemctl start "$SERVICE_NAME"
   check_error "Не удалось запустить сервис"
 
+  # Настройка выбранного способа HTTPS
+  case $ssl_choice in
+    1)
+      setup_nginx_letsencrypt
+      ;;
+    2)
+      systemctl restart "$SERVICE_NAME"
+      ;;
+    3)
+      echo "${YELLOW}HTTP режим активирован${NC}"
+      ;;
+  esac
+
   # Проверка установки AntiZapret-VPN
   echo "${YELLOW}Проверка установки AntiZapret-VPN...${NC}"
   sleep 3
@@ -200,7 +302,17 @@ EOL
     echo "┌────────────────────────────────────────────┐"
     echo "│   Установка успешно завершена!             │"
     echo "├────────────────────────────────────────────┤"
-    echo "│ Адрес: http://$(hostname -I | awk '{print $1}'):$APP_PORT"
+    case $ssl_choice in
+      1)
+        echo "│ Адрес: https://$DOMAIN"
+        ;;
+      2)
+        echo "│ Адрес: https://$(hostname -I | awk '{print $1}'):$APP_PORT"
+        ;;
+      3)
+        echo "│ Адрес: http://$(hostname -I | awk '{print $1}'):$APP_PORT"
+        ;;
+    esac
     echo "│"
     echo "│ Для входа используйте учетные данные,"
     echo "│ созданные при инициализации базы данных"

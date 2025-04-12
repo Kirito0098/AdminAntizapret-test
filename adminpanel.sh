@@ -21,8 +21,6 @@ APP_PORT="$DEFAULT_PORT"
 DB_FILE="$INSTALL_DIR/users.db"
 ANTIZAPRET_INSTALL_DIR="/root/antizapret"
 ANTIZAPRET_INSTALL_SCRIPT="https://raw.githubusercontent.com/GubernievS/AntiZapret-VPN/main/setup.sh"
-NGINX_CONF_DIR="/etc/nginx/conf.d"
-SSL_CERT_DIR="/etc/nginx/ssl"
 
 # Генерируем случайный секретный ключ
 SECRET_KEY=$(openssl rand -hex 32)
@@ -61,7 +59,7 @@ check_error() {
 
 # Проверка прав root
 check_root() {
-  if [ "$(id -u)" -ne 0]; then
+  if [ "$(id -u)" -ne 0 ]; then
     printf "%s\n" "${RED}Этот скрипт должен быть запущен с правами root!${NC}" >&2
     exit 1
   fi
@@ -80,112 +78,6 @@ check_antizapret_installed() {
   else
     return 1
   fi
-}
-
-# Установка Nginx
-install_nginx() {
-    echo "${YELLOW}Установка Nginx...${NC}"
-    apt-get install -y -qq nginx
-    check_error "Не удалось установить Nginx"
-    systemctl enable nginx
-    systemctl start nginx
-    echo "${GREEN}Nginx успешно установлен и запущен!${NC}"
-}
-
-# Генерация самоподписанного сертификата
-generate_self_signed_cert() {
-    domain=$1
-    
-    echo "${YELLOW}Генерация самоподписанного сертификата для $domain...${NC}"
-    
-    # Создаем директорию для сертификатов
-    mkdir -p "$SSL_CERT_DIR/$domain"
-    
-    # Генерируем ключ и сертификат
-    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-        -keyout "$SSL_CERT_DIR/$domain/privkey.pem" \
-        -out "$SSL_CERT_DIR/$domain/fullchain.pem" \
-        -subj "/CN=$domain" \
-        -addext "subjectAltName = DNS:$domain"
-    
-    check_error "Не удалось сгенерировать самоподписанный сертификат"
-    
-    echo "${GREEN}Самоподписанный сертификат успешно создан!${NC}"
-}
-
-# Настройка Nginx в качестве прокси
-setup_nginx_proxy() {
-    domain=$1
-    use_https=$2
-    ssl_type=$3
-    
-    echo "${YELLOW}Настройка Nginx в качестве прокси...${NC}"
-    
-    if [ "$use_https" = "y" ]; then
-        if [ "$ssl_type" = "selfsigned" ]; then
-            # Генерируем самоподписанный сертификат
-            generate_self_signed_cert "$domain"
-        fi
-        
-        # Конфигурация с HTTPS
-        cat > "$NGINX_CONF_DIR/admin-antizapret.conf" <<EOL
-server {
-    listen 80;
-    server_name $domain;
-    return 301 https://\$host\$request_uri;
-}
-
-server {
-    listen 443 ssl;
-    server_name $domain;
-
-    ssl_certificate $SSL_CERT_DIR/$domain/fullchain.pem;
-    ssl_certificate_key $SSL_CERT_DIR/$domain/privkey.pem;
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_prefer_server_ciphers on;
-    ssl_ciphers "EECDH+AESGCM:EDH+AESGCM:AES256+EECDH:AES256+EDH";
-
-    location / {
-        proxy_pass http://127.0.0.1:$APP_PORT;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-    }
-
-    location /static/ {
-        alias $INSTALL_DIR/static/;
-    }
-}
-EOL
-    else
-        # Конфигурация без HTTPS
-        cat > "$NGINX_CONF_DIR/admin-antizapret.conf" <<EOL
-server {
-    listen 80;
-    server_name $domain;
-
-    location / {
-        proxy_pass http://127.0.0.1:$APP_PORT;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-    }
-
-    location /static/ {
-        alias $INSTALL_DIR/static/;
-    }
-}
-EOL
-    fi
-    
-    # Проверка конфигурации Nginx
-    nginx -t
-    check_error "Ошибка в конфигурации Nginx"
-    
-    systemctl reload nginx
-    echo "${GREEN}Nginx успешно настроен в качестве прокси!${NC}"
 }
 
 # Установка AntiZapret-VPN
@@ -217,16 +109,6 @@ install() {
   printf "└────────────────────────────────────────────┘\n"
   printf "%s\n" "${NC}"
 
-  # Клонирование репозитория
-  echo "${YELLOW}Клонирование репозитория...${NC}"
-   if [ -d "$INSTALL_DIR/.git" ]; then
-  echo "${YELLOW}Директория уже существует, обновляем...${NC}"
-  cd "$INSTALL_DIR" && git pull
-  else
-    git clone "$REPO_URL" "$INSTALL_DIR" > /dev/null 2>&1
-  fi
-  check_error "Не удалось клонировать репозиторий"
-  
   # Запрос параметров
   read -p "Введите порт для сервиса [$DEFAULT_PORT]: " APP_PORT
   APP_PORT=${APP_PORT:-$DEFAULT_PORT}
@@ -237,60 +119,6 @@ install() {
     read -p "Введите другой порт: " APP_PORT
   done
 
-  # Запрос доменного имени для Nginx
-  read -p "Хотите использовать Nginx в качестве прокси? (y/n): " use_nginx
-  if [ "$use_nginx" = "y" ]; then
-    read -p "Введите доменное имя или IP-адрес сервера: " domain_name
-    if [ -z "$domain_name" ]; then
-      echo "${RED}Доменное имя/IP не может быть пустым!${NC}"
-      exit 1
-    fi
-    
-    read -p "Хотите настроить HTTPS? (y/n): " use_https
-    if [ "$use_https" = "y" ]; then
-      echo "${YELLOW}Выберите тип SSL сертификата:${NC}"
-      echo "1) Let's Encrypt (необходимо доменное имя с DNS)"
-      echo "2) Самоподписанный сертификат"
-      read -p "Ваш выбор [1-2]: " ssl_choice
-      
-      case $ssl_choice in
-        1)
-          read -p "Введите email для Let's Encrypt: " email
-          if [ -z "$email" ]; then
-            echo "${RED}Email не может быть пустым!${NC}"
-            exit 1
-          fi
-          ssl_type="letsencrypt"
-          ;;
-        2)
-          ssl_type="selfsigned"
-          ;;
-        *)
-          echo "${RED}Неверный выбор!${NC}"
-          exit 1
-          ;;
-      esac
-    fi
-  else
-    read -p "Хотите использовать HTTPS без Nginx? (y/n): " use_https
-    if [ "$use_https" = "y" ]; then
-        echo "${YELLOW}Настройка HTTPS без Nginx...${NC}"
-        # Генерация самоподписанного сертификата
-        mkdir -p "$INSTALL_DIR/ssl"
-        openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-            -keyout "$INSTALL_DIR/ssl/privkey.pem" \
-            -out "$INSTALL_DIR/ssl/fullchain.pem" \
-            -subj "/CN=$(hostname)"
-        
-        # Добавляем SSL параметры в .env
-        echo "SSL_CERT=$INSTALL_DIR/ssl/fullchain.pem" >> "$INSTALL_DIR/.env"
-        echo "SSL_KEY=$INSTALL_DIR/ssl/privkey.pem" >> "$INSTALL_DIR/.env"
-        echo "USE_HTTPS=true" >> "$INSTALL_DIR/.env"
-    else
-        echo "USE_HTTPS=false" >> "$INSTALL_DIR/.env"
-    fi
-  fi
-
   # Обновление пакетов
   echo "${YELLOW}Обновление списка пакетов...${NC}"
   apt-get update -qq
@@ -298,28 +126,18 @@ install() {
 
   # Установка зависимостей
   echo "${YELLOW}Установка системных зависимостей...${NC}"
-  apt-get install -y -qq python3 python3-pip python3-venv git wget openssl
+  apt-get install -y -qq python3 python3-pip python3-venv git wget
   check_error "Не удалось установить зависимости"
 
-  # Установка Nginx если требуется
-  if [ "$use_nginx" = "y" ]; then
-    install_nginx
-    
-    if [ "$use_https" = "y" ] && [ "$ssl_type" = "letsencrypt" ]; then
-      echo "${YELLOW}Установка certbot для получения SSL сертификата...${NC}"
-      apt-get install -y -qq certbot python3-certbot-nginx
-      check_error "Не удалось установить certbot"
-      
-      echo "${YELLOW}Получение SSL сертификата для домена $domain_name...${NC}"
-      certbot --nginx -d $domain_name --non-interactive --agree-tos -m $email
-      check_error "Не удалось получить SSL сертификат"
-      
-      # Настройка автоматического обновления сертификата
-      (crontab -l 2>/dev/null; echo "0 12 * * * /usr/bin/certbot renew --quiet") | crontab -
-      echo "${GREEN}SSL сертификат успешно установлен и настроено автоматическое обновление!${NC}"
-    fi
+  # Клонирование репозитория
+  echo "${YELLOW}Клонирование репозитория...${NC}"
+  if [ -d "$INSTALL_DIR" ]; then
+  echo "${YELLOW}Директория уже существует, обновляем...${NC}"
+  cd "$INSTALL_DIR" && git pull
+  else
+    git clone "$REPO_URL" "$INSTALL_DIR" > /dev/null 2>&1
   fi
-
+  check_error "Не удалось клонировать репозиторий"
 
   # Создание директории и копирование скрипта
   echo "${YELLOW}Копирование adminpanel.sh в /root/adminpanel/...${NC}"
@@ -338,12 +156,12 @@ install() {
   check_error "Не удалось установить Python-зависимости"
 
   # Настройка конфигурации
-  echo "${YELLOW}Настройка конфигурации...${NC}"
-  cat > "$INSTALL_DIR/.env" <<EOL
+echo "${YELLOW}Настройка конфигурации...${NC}"
+cat > "$INSTALL_DIR/.env" <<EOL
 SECRET_KEY='$SECRET_KEY'
 APP_PORT=$APP_PORT
 EOL
-  chmod 600 "$INSTALL_DIR/.env"
+chmod 600 "$INSTALL_DIR/.env"
 
   # Инициализация базы данных
   init_db
@@ -374,11 +192,6 @@ EOL
   systemctl start "$SERVICE_NAME"
   check_error "Не удалось запустить сервис"
 
-  # Настройка Nginx если требуется
-  if [ "$use_nginx" = "y" ]; then
-    setup_nginx_proxy "$domain_name" "$use_https" "$ssl_type"
-  fi
-
   # Проверка установки AntiZapret-VPN
   echo "${YELLOW}Проверка установки AntiZapret-VPN...${NC}"
   sleep 3
@@ -387,25 +200,7 @@ EOL
     echo "┌────────────────────────────────────────────┐"
     echo "│   Установка успешно завершена!             │"
     echo "├────────────────────────────────────────────┤"
-    if [ "$use_nginx" = "y" ]; then
-      if [ "$use_https" = "y" ]; then
-        echo "│ Адрес: https://$domain_name"
-        if [ "$ssl_type" = "selfsigned" ]; then
-          echo "│ ВНИМАНИЕ: Используется самоподписанный сертификат!"
-          echo "│ Браузер может предупреждать о небезопасном соединении."
-        fi
-      else
-        echo "│ Адрес: http://$domain_name"
-      fi
-    else
-      if grep -q "USE_HTTPS=true" "$INSTALL_DIR/.env"; then
-        echo "│ Адрес: https://$(hostname -I | awk '{print $1}'):$APP_PORT"
-        echo "│ ВНИМАНИЕ: Используется самоподписанный сертификат!"
-        echo "│ Браузер может предупреждать о небезопасном соединении."
-      else
-        echo "│ Адрес: http://$(hostname -I | awk '{print $1}'):$APP_PORT"
-      fi
-    fi
+    echo "│ Адрес: http://$(hostname -I | awk '{print $1}'):$APP_PORT"
     echo "│"
     echo "│ Для входа используйте учетные данные,"
     echo "│ созданные при инициализации базы данных"

@@ -18,6 +18,7 @@ import time
 import platform
 import shutil
 
+
 load_dotenv() 
 
 port = int(os.getenv('APP_PORT', '5050'))
@@ -87,66 +88,6 @@ def run_bash_script(option, client_name, cert_expire=None):
     if result.returncode != 0:
         raise subprocess.CalledProcessError(result.returncode, command, output=result.stdout, stderr=result.stderr)
     return result.stdout, result.stderr
-
-# Добавим новые маршруты для работы с сертификатами
-@app.route('/toggle_https', methods=['POST'])
-@login_required
-def toggle_https():
-    use_https = request.form.get('use_https') == 'true'
-    
-    # Обновляем .env файл
-    env_path = os.path.join(os.path.dirname(__file__), '.env')
-    with open(env_path, 'r') as f:
-        lines = f.readlines()
-    
-    with open(env_path, 'w') as f:
-        for line in lines:
-            if line.startswith('USE_HTTPS='):
-                f.write(f'USE_HTTPS={use_https}\n')
-            else:
-                f.write(line)
-    
-    return jsonify({'success': True, 'message': 'Настройки HTTPS обновлены'})
-
-@app.route('/generate_test_certs', methods=['POST'])
-@login_required
-def generate_test_certs():
-    try:
-        # Создаем временные тестовые сертификаты
-        subprocess.run([
-            'openssl', 'req', '-x509', '-newkey', 'rsa:4096',
-            '-keyout', 'key.pem', '-out', 'cert.pem',
-            '-days', '365', '-nodes', '-subj', '/CN=localhost'
-        ], check=True)
-        
-        return jsonify({
-            'success': True,
-            'message': 'Тестовые сертификаты успешно созданы'
-        })
-    except subprocess.CalledProcessError as e:
-        return jsonify({
-            'success': False,
-            'message': f'Ошибка создания сертификатов: {str(e)}'
-        }), 500
-
-@app.route('/upload_certs', methods=['POST'])
-@login_required
-def upload_certs():
-    if 'cert_file' not in request.files or 'key_file' not in request.files:
-        return jsonify({'success': False, 'message': 'Необходимо загрузить оба файла'}), 400
-    
-    cert_file = request.files['cert_file']
-    key_file = request.files['key_file']
-    
-    if cert_file.filename == '' or key_file.filename == '':
-        return jsonify({'success': False, 'message': 'Не выбраны файлы'}), 400
-    
-    try:
-        cert_file.save('cert.pem')
-        key_file.save('key.pem')
-        return jsonify({'success': True, 'message': 'Сертификаты успешно загружены'})
-    except Exception as e:
-        return jsonify({'success': False, 'message': f'Ошибка загрузки: {str(e)}'}), 500
 
 # Получение списка конфигурационных файлов
 def get_config_files():
@@ -346,6 +287,66 @@ def captcha():
     response = make_response(img_io.getvalue())
     response.headers.set('Content-Type', 'image/png')
     return response
+
+# Добавим новые маршруты для работы с сертификатами
+@app.route('/toggle_https', methods=['POST'])
+@login_required
+def toggle_https():
+    use_https = request.form.get('use_https') == 'true'
+    
+    # Обновляем .env файл
+    env_path = os.path.join(os.path.dirname(__file__), '.env')
+    with open(env_path, 'r') as f:
+        lines = f.readlines()
+    
+    with open(env_path, 'w') as f:
+        for line in lines:
+            if line.startswith('USE_HTTPS='):
+                f.write(f'USE_HTTPS={use_https}\n')
+            else:
+                f.write(line)
+    
+    return jsonify({'success': True, 'message': 'Настройки HTTPS обновлены'})
+
+@app.route('/generate_test_certs', methods=['POST'])
+@login_required
+def generate_test_certs():
+    try:
+        # Создаем временные тестовые сертификаты
+        subprocess.run([
+            'openssl', 'req', '-x509', '-newkey', 'rsa:4096',
+            '-keyout', 'key.pem', '-out', 'cert.pem',
+            '-days', '365', '-nodes', '-subj', '/CN=localhost'
+        ], check=True)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Тестовые сертификаты успешно созданы'
+        })
+    except subprocess.CalledProcessError as e:
+        return jsonify({
+            'success': False,
+            'message': f'Ошибка создания сертификатов: {str(e)}'
+        }), 500
+
+@app.route('/upload_certs', methods=['POST'])
+@login_required
+def upload_certs():
+    if 'cert_file' not in request.files or 'key_file' not in request.files:
+        return jsonify({'success': False, 'message': 'Необходимо загрузить оба файла'}), 400
+    
+    cert_file = request.files['cert_file']
+    key_file = request.files['key_file']
+    
+    if cert_file.filename == '' or key_file.filename == '':
+        return jsonify({'success': False, 'message': 'Не выбраны файлы'}), 400
+    
+    try:
+        cert_file.save('cert.pem')
+        key_file.save('key.pem')
+        return jsonify({'success': True, 'message': 'Сертификаты успешно загружены'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'Ошибка загрузки: {str(e)}'}), 500
 
 # Декоратор для проверки существования файла
 def validate_file(func):

@@ -119,6 +119,24 @@ install() {
     read -p "Введите другой порт: " APP_PORT
   done
 
+# Выбор HTTPS
+read -p "Включить HTTPS с самоподписанным сертификатом? (y/n): " ENABLE_HTTPS
+ENABLE_HTTPS=${ENABLE_HTTPS,,} # Приводим к нижнему регистру
+
+if [[ "$ENABLE_HTTPS" == "y" ]]; then
+  HTTPS_ENABLED=true
+  SSL_CERT_PATH="$INSTALL_DIR/cert.pem"
+  SSL_KEY_PATH="$INSTALL_DIR/key.pem"
+
+  echo "${YELLOW}Создание самоподписанного SSL сертификата...${NC}"
+  openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+    -keyout "$SSL_KEY_PATH" -out "$SSL_CERT_PATH" \
+    -subj "/C=RU/ST=Russia/L=Moscow/O=AdminAntizapret/OU=Dev/CN=localhost"
+  check_error "Не удалось создать SSL сертификат"
+else
+  HTTPS_ENABLED=false
+fi
+
   # Обновление пакетов
   echo "${YELLOW}Обновление списка пакетов...${NC}"
   apt-get update -qq
@@ -155,12 +173,27 @@ install() {
   "$VENV_PATH/bin/pip" install -q -r "$INSTALL_DIR/requirements.txt"
   check_error "Не удалось установить Python-зависимости"
 
-  # Настройка конфигурации
+# Настройка конфигурации с учетом HTTPS
 echo "${YELLOW}Настройка конфигурации...${NC}"
+
+if [[ "$ENABLE_HTTPS" == "y" ]]; then
+  USE_HTTPS=true
+  SSL_CERT_PATH="$INSTALL_DIR/cert.pem"
+  SSL_KEY_PATH="$INSTALL_DIR/key.pem"
+else
+  USE_HTTPS=false
+  SSL_CERT_PATH=""
+  SSL_KEY_PATH=""
+fi
+
 cat > "$INSTALL_DIR/.env" <<EOL
 SECRET_KEY='$SECRET_KEY'
 APP_PORT=$APP_PORT
+USE_HTTPS=$USE_HTTPS
+SSL_CERT_PATH=$SSL_CERT_PATH
+SSL_KEY_PATH=$SSL_KEY_PATH
 EOL
+
 chmod 600 "$INSTALL_DIR/.env"
 
   # Инициализация базы данных

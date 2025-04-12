@@ -17,7 +17,11 @@ from dotenv import load_dotenv
 import time
 import platform
 
-load_dotenv() 
+load_dotenv()
+use_https = os.getenv("USE_HTTPS", "false").lower() == "true"
+ssl_cert_path = os.getenv("SSL_CERT_PATH")
+ssl_key_path = os.getenv("SSL_KEY_PATH")
+
 
 port = int(os.getenv('APP_PORT', '5050'))
 
@@ -545,4 +549,8 @@ def settings():
     return render_template('settings.html', port=current_port, users=users)
 
 if __name__ == '__main__':
+    if use_https and ssl_cert_path and ssl_key_path and os.path.exists(ssl_cert_path) and os.path.exists(ssl_key_path):
+    context = (ssl_cert_path, ssl_key_path)
+    app.run(host='0.0.0.0', port=port, ssl_context=context)
+else:
     app.run(host='0.0.0.0', port=port)

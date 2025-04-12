@@ -550,7 +550,7 @@ def settings():
 
 if __name__ == '__main__':
     if use_https and ssl_cert_path and ssl_key_path and os.path.exists(ssl_cert_path) and os.path.exists(ssl_key_path):
-    context = (ssl_cert_path, ssl_key_path)
-    app.run(host='0.0.0.0', port=port, ssl_context=context)
-else:
-    app.run(host='0.0.0.0', port=port)
+        context = (ssl_cert_path, ssl_key_path)
+        app.run(host='0.0.0.0', port=port, ssl_context=context)
+    else:
+        app.run(host='0.0.0.0', port=port)

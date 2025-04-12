@@ -3,3 +3,6 @@ venv/
 __pycache__/
 .env
 instance/
+cert.pem
+key.pem
+cert/

@@ -144,8 +144,10 @@ ENABLE_HTTPS=${ENABLE_HTTPS,,}
 
 if [[ "$ENABLE_HTTPS" == "y" ]]; then
   HTTPS_ENABLED=true
-  SSL_CERT_PATH="$INSTALL_DIR/cert.pem"
-  SSL_KEY_PATH="$INSTALL_DIR/key.pem"
+  CERT_DIR="$INSTALL_DIR/cert"
+  mkdir -p "$CERT_DIR"
+  SSL_CERT_PATH="$CERT_DIR/cert.pem"
+  SSL_KEY_PATH="$CERT_DIR/key.pem"
 
   echo "${YELLOW}Создание самоподписанного SSL сертификата...${NC}"
   openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
@@ -231,11 +233,18 @@ EOL
   echo "${YELLOW}Проверка установки AntiZapret-VPN...${NC}"
   sleep 3
   if systemctl is-active --quiet "$SERVICE_NAME"; then
+    # Определение протокола
+    if [ "$HTTPS_ENABLED" = true ]; then
+      PROTOCOL="https"
+    else
+      PROTOCOL="http"
+    fi
+
     echo "${GREEN}"
     echo "┌────────────────────────────────────────────┐"
     echo "│   Установка успешно завершена!             │"
     echo "├────────────────────────────────────────────┤"
-    echo "│ Адрес: http://$(hostname -I | awk '{print $1}'):$APP_PORT"
+    echo "│ Адрес: $PROTOCOL://$(hostname -I | awk '{print $1}'):$APP_PORT"
     echo "│"
     echo "│ Для входа используйте учетные данные,"
     echo "│ созданные при инициализации базы данных"

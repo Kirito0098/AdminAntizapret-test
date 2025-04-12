@@ -544,5 +544,13 @@ def settings():
     users = User.query.all()
     return render_template('settings.html', port=current_port, users=users)
 
+use_https = os.getenv('USE_HTTPS', 'false').lower() == 'true'
+ssl_cert = os.getenv('SSL_CERT')
+ssl_key = os.getenv('SSL_KEY')
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=port)
+    if use_https and ssl_cert and ssl_key:
+        context = (ssl_cert, ssl_key)
+        app.run(host='0.0.0.0', port=port, ssl_context=context)
+    else:
+        app.run(host='0.0.0.0', port=port)

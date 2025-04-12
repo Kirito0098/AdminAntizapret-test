@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Полный менеджер AdminAntizapret
+# Полный менеджер AdminAntizapret с поддержкой Nginx
 
 export LC_ALL="en_US.UTF-8"
 export LANG="en_US.UTF-8"
@@ -21,6 +21,7 @@ APP_PORT="$DEFAULT_PORT"
 DB_FILE="$INSTALL_DIR/users.db"
 ANTIZAPRET_INSTALL_DIR="/root/antizapret"
 ANTIZAPRET_INSTALL_SCRIPT="https://raw.githubusercontent.com/GubernievS/AntiZapret-VPN/main/setup.sh"
+NGINX_CONF_PATH="/etc/nginx/sites-available/adminantizapret"
 
 # Генерируем случайный секретный ключ
 SECRET_KEY=$(openssl rand -hex 32)
@@ -100,6 +101,73 @@ init_db() {
   check_error "Не удалось инициализировать базу данных"
 }
 
+# Настройка Nginx
+configure_nginx() {
+  local use_https=$1
+  
+  echo "${YELLOW}Настройка Nginx...${NC}"
+  
+  # Создаем конфигурационный файл Nginx
+  cat > "$NGINX_CONF_PATH" <<EOL
+server {
+    listen 80;
+    server_name _;
+
+    location / {
+        proxy_pass http://127.0.0.1:$APP_PORT;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
+    location /static {
+        alias $INSTALL_DIR/static;
+        expires 30d;
+    }
+}
+EOL
+
+  if [ "$use_https" = true ]; then
+    echo "${YELLOW}Генерация самоподписанного SSL-сертификата...${NC}"
+    mkdir -p /etc/nginx/ssl
+    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+      -keyout /etc/nginx/ssl/adminantizapret.key \
+      -out /etc/nginx/ssl/adminantizapret.crt \
+      -subj "/C=RU/ST=Russia/L=Moscow/O=AdminAntizapret/OU=Dev/CN=localhost"
+    
+    # Обновляем конфигурацию для HTTPS
+    cat >> "$NGINX_CONF_PATH" <<EOL
+
+server {
+    listen 443 ssl;
+    server_name _;
+
+    ssl_certificate /etc/nginx/ssl/adminantizapret.crt;
+    ssl_certificate_key /etc/nginx/ssl/adminantizapret.key;
+
+    location / {
+        proxy_pass http://127.0.0.1:$APP_PORT;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
+    location /static {
+        alias $INSTALL_DIR/static;
+        expires 30d;
+    }
+}
+EOL
+  fi
+
+  # Активируем конфигурацию
+  ln -sf "$NGINX_CONF_PATH" "/etc/nginx/sites-enabled/"
+  nginx -t && systemctl restart nginx
+  check_error "Ошибка конфигурации Nginx"
+}
+
 # Установка AdminAntizapret
 install() {
   clear
@@ -118,6 +186,21 @@ install() {
     echo "${RED}Порт $APP_PORT уже занят!${NC}"
     read -p "Введите другой порт: " APP_PORT
   done
+
+  # Выбор режима работы
+  echo "${YELLOW}Выберите режим работы:${NC}"
+  echo "1) Через Nginx с самоподписанным SSL-сертификатом (HTTPS)"
+  echo "2) Через Nginx без SSL (HTTP)"
+  echo "3) Без Nginx (как раньше, HTTP)"
+  read -p "Ваш выбор [1-3]: " mode_choice
+
+  case $mode_choice in
+    1) USE_NGINX=true; USE_HTTPS=true;;
+    2) USE_NGINX=true; USE_HTTPS=false;;
+    3) USE_NGINX=false; USE_HTTPS=false;;
+    *) echo "${RED}Неверный выбор, используется режим 3 (без Nginx)${NC}"; USE_NGINX=false; USE_HTTPS=false;;
+  esac
+
   # Обновление пакетов
   echo "${YELLOW}Обновление списка пакетов...${NC}"
   apt-get update -qq
@@ -126,42 +209,22 @@ install() {
   # Установка зависимостей
   echo "${YELLOW}Установка системных зависимостей...${NC}"
   apt-get install -y -qq python3 python3-pip python3-venv git wget
+  if [ "$USE_NGINX" = true ]; then
+    apt-get install -y -qq nginx
+  fi
   check_error "Не удалось установить зависимости"
 
   # Клонирование репозитория
   echo "${YELLOW}Клонирование репозитория...${NC}"
   if [ -d "$INSTALL_DIR" ]; then
-  echo "${YELLOW}Директория уже существует, обновляем...${NC}"
-  cd "$INSTALL_DIR" && git pull
+    echo "${YELLOW}Директория уже существует, обновляем...${NC}"
+    cd "$INSTALL_DIR" && git pull
   else
     git clone "$REPO_URL" "$INSTALL_DIR" > /dev/null 2>&1
   fi
   check_error "Не удалось клонировать репозиторий"
   
-# Генерация SSL, если включено
-read -p "Включить HTTPS с самоподписанным сертификатом? (y/n): " ENABLE_HTTPS
-ENABLE_HTTPS=${ENABLE_HTTPS,,}
-
-if [[ "$ENABLE_HTTPS" == "y" ]]; then
-  HTTPS_ENABLED=true
-  CERT_DIR="$INSTALL_DIR/cert"
-  mkdir -p "$CERT_DIR"
-  SSL_CERT_PATH="$CERT_DIR/cert.pem"
-  SSL_KEY_PATH="$CERT_DIR/key.pem"
-
-  echo "${YELLOW}Создание самоподписанного SSL сертификата...${NC}"
-  openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-    -keyout "$SSL_KEY_PATH" -out "$SSL_CERT_PATH" \
-    -subj "/C=RU/ST=Russia/L=Moscow/O=AdminAntizapret/OU=Dev/CN=localhost"
-  check_error "Не удалось создать SSL сертификат"
-else
-  HTTPS_ENABLED=false
-  SSL_CERT_PATH=""
-  SSL_KEY_PATH=""
-fi
-
-
-  # Создание директории и копирование скрипта
+  # Копирование adminpanel.sh
   echo "${YELLOW}Копирование adminpanel.sh в /root/adminpanel/...${NC}"
   mkdir -p /root/adminpanel
   cp "$INSTALL_DIR/adminpanel.sh" /root/adminpanel/
@@ -177,30 +240,15 @@ fi
   "$VENV_PATH/bin/pip" install -q -r "$INSTALL_DIR/requirements.txt"
   check_error "Не удалось установить Python-зависимости"
 
-# Настройка конфигурации с учетом HTTPS
-echo "${YELLOW}Настройка конфигурации...${NC}"
-
-if [[ "$ENABLE_HTTPS" == "y" ]]; then
-  USE_HTTPS=true
-  CERT_DIR="$INSTALL_DIR/cert"
-  mkdir -p "$CERT_DIR"
-  SSL_CERT_PATH="$CERT_DIR/cert.pem"
-  SSL_KEY_PATH="$CERT_DIR/key.pem"
-else
-  USE_HTTPS=false
-  SSL_CERT_PATH=""
-  SSL_KEY_PATH=""
-fi
-
-cat > "$INSTALL_DIR/.env" <<EOL
+  # Настройка конфигурации
+  echo "${YELLOW}Настройка конфигурации...${NC}"
+  cat > "$INSTALL_DIR/.env" <<EOL
 SECRET_KEY='$SECRET_KEY'
-APP_PORT=$APP_PORT
-USE_HTTPS=$USE_HTTPS
-SSL_CERT_PATH=$SSL_CERT_PATH
-SSL_KEY_PATH=$SSL_KEY_PATH
+APP_PORT=127.0.0.1:$APP_PORT
+USE_HTTPS=false
 EOL
 
-chmod 600 "$INSTALL_DIR/.env"
+  chmod 600 "$INSTALL_DIR/.env"
 
   # Инициализация базы данных
   init_db
@@ -231,31 +279,22 @@ EOL
   systemctl start "$SERVICE_NAME"
   check_error "Не удалось запустить сервис"
 
+  # Настройка Nginx если выбран этот режим
+  if [ "$USE_NGINX" = true ]; then
+    configure_nginx $USE_HTTPS
+  fi
+
   # Проверка установки AntiZapret-VPN
   echo "${YELLOW}Проверка установки AntiZapret-VPN...${NC}"
-  sleep 3
-  if systemctl is-active --quiet "$SERVICE_NAME"; then
-    # Определение протокола
-    if [ "$HTTPS_ENABLED" = true ]; then
-      PROTOCOL="https"
-    else
-      PROTOCOL="http"
-    fi
-
-    echo "${GREEN}"
-    echo "┌────────────────────────────────────────────┐"
-    echo "│   Установка успешно завершена!             │"
-    echo "├────────────────────────────────────────────┤"
-    echo "│ Адрес: $PROTOCOL://$(hostname -I | awk '{print $1}'):$APP_PORT"
-    echo "│"
-    echo "│ Для входа используйте учетные данные,"
-    echo "│ созданные при инициализации базы данных"
-    echo "└────────────────────────────────────────────┘"
-    echo "${NC}"
+  if ! check_antizapret_installed; then
+    echo "${YELLOW}AntiZapret-VPN не установлен. Установить сейчас? (y/n)${NC}"
+    read -r answer
+    case $answer in
+      [Yy]*) install_antizapret;;
+      *) echo "${YELLOW}Пропускаем установку AntiZapret-VPN${NC}";;
+    esac
   else
-    echo "${RED}Ошибка при запуске сервиса!${NC}"
-    journalctl -u "$SERVICE_NAME" -n 10 --no-pager
-    exit 1
+    echo "${GREEN}AntiZapret-VPN уже установлен.${NC}"
   fi
 
   # Установка прав выполнения для client.sh и doall.sh
@@ -267,17 +306,27 @@ EOL
     echo "${RED}Ошибка при установке прав выполнения!${NC}"
   fi
 
-  # Проверка и установка AntiZapret-VPN
-  if ! check_antizapret_installed; then
-    echo "${YELLOW}AntiZapret-VPN не установлен. Установить сейчас? (y/n)${NC}"
-    read -r answer
-    case $answer in
-      [Yy]*) install_antizapret;;
-      *) echo "${YELLOW}Пропускаем установку AntiZapret-VPN${NC}";;
-    esac
+  # Вывод информации о завершении установки
+  echo "${GREEN}"
+  echo "┌────────────────────────────────────────────┐"
+  echo "│   Установка успешно завершена!             │"
+  echo "├────────────────────────────────────────────┤"
+  
+  if [ "$USE_NGINX" = true ]; then
+    if [ "$USE_HTTPS" = true ]; then
+      echo "│ Доступно по адресу: https://ваш_сервер"
+    else
+      echo "│ Доступно по адресу: http://ваш_сервер"
+    fi
   else
-    echo "${GREEN}AntiZapret-VPN уже установлен.${NC}"
+    echo "│ Доступно по адресу: http://ваш_сервер:$APP_PORT"
   fi
+  
+  echo "│"
+  echo "│ Для входа используйте учетные данные,"
+  echo "│ созданные при инициализации базы данных"
+  echo "└────────────────────────────────────────────┘"
+  echo "${NC}"
 
   press_any_key
 }

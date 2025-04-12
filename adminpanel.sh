@@ -468,6 +468,27 @@ uninstall() {
       # Создать резервную копию перед удалением
       create_backup
       
+      # Определяем способ установки для правильного удаления
+      use_nginx=false
+      use_letsencrypt=false
+      use_selfsigned=false
+      
+      # Проверяем, используется ли Nginx
+      if [ -f "/etc/nginx/sites-enabled/admin-antizapret" ]; then
+        use_nginx=true
+        # Проверяем, используется ли Let's Encrypt
+        if [ -d "/etc/letsencrypt/live/" ]; then
+          use_letsencrypt=true
+        fi
+      fi
+      
+      # Проверяем, используется ли самоподписанный сертификат
+      if grep -q "USE_HTTPS=true" "$INSTALL_DIR/.env" 2>/dev/null && \
+         [ -f "/etc/ssl/certs/admin-antizapret.crt" ] && \
+         [ -f "/etc/ssl/private/admin-antizapret.key" ]; then
+        use_selfsigned=true
+      fi
+      
       # Остановка и удаление сервиса
       printf "%s\n" "${YELLOW}Остановка сервиса...${NC}"
       systemctl stop $SERVICE_NAME
@@ -475,9 +496,39 @@ uninstall() {
       rm -f "/etc/systemd/system/$SERVICE_NAME.service"
       systemctl daemon-reload
       
-      # Удаление файлов
+      # Удаление конфигурации Nginx, если использовался
+      if [ "$use_nginx" = true ]; then
+        printf "%s\n" "${YELLOW}Удаление конфигурации Nginx...${NC}"
+        rm -f /etc/nginx/sites-enabled/admin-antizapret
+        rm -f /etc/nginx/sites-available/admin-antizapret
+        systemctl reload nginx
+        
+        # Удаление Let's Encrypt сертификата, если использовался
+        if [ "$use_letsencrypt" = true ]; then
+          printf "%s\n" "${YELLOW}Удаление Let's Encrypt сертификата...${NC}"
+          certbot delete --non-interactive --cert-name $DOMAIN 2>/dev/null || \
+            echo "${YELLOW}Не удалось удалить сертификат Let's Encrypt, возможно он уже удален${NC}"
+          
+          # Удаление задания cron для обновления сертификатов
+          crontab -l | grep -v 'certbot renew' | crontab -
+        fi
+      fi
+      
+      # Удаление самоподписанного сертификата, если использовался
+      if [ "$use_selfsigned" = true ]; then
+        printf "%s\n" "${YELLOW}Удаление самоподписанного сертификата...${NC}"
+        rm -f /etc/ssl/certs/admin-antizapret.crt
+        rm -f /etc/ssl/private/admin-antizapret.key
+      fi
+      
+      # Удаление файлов приложения
       printf "%s\n" "${YELLOW}Удаление файлов...${NC}"
       rm -rf "$INSTALL_DIR"
+      rm -f /root/adminpanel/adminpanel.sh
+      
+      # Удаление зависимостей, если они больше не нужны
+      printf "%s\n" "${YELLOW}Очистка зависимостей...${NC}"
+      apt-get autoremove -y --purge python3-venv python3-pip 2>/dev/null
       
       printf "%s\n" "${GREEN}Удаление завершено успешно!${NC}"
       printf "Резервная копия сохранена в /var/backups/antizapret\n"

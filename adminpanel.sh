@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Полный менеджер AdminAntizapret с поддержкой Nginx и Let's Encrypt
+# Полный менеджер AdminAntizapret
 
 export LC_ALL="en_US.UTF-8"
 export LANG="en_US.UTF-8"
@@ -9,7 +9,6 @@ export LANG="en_US.UTF-8"
 RED=$(printf '\033[31m')
 GREEN=$(printf '\033[32m')
 YELLOW=$(printf '\033[33m')
-BLUE=$(printf '\033[34m')
 NC=$(printf '\033[0m') # No Color
 
 # Основные параметры
@@ -17,14 +16,11 @@ INSTALL_DIR="/opt/AdminAntizapret"
 VENV_PATH="$INSTALL_DIR/venv"
 SERVICE_NAME="admin-antizapret"
 DEFAULT_PORT="5050"
-REPO_URL="https://github.com/Kirito0098/AdminAntizapret-test"
+REPO_URL="https://github.com/Kirito0098/AdminAntizapret.git"
 APP_PORT="$DEFAULT_PORT"
 DB_FILE="$INSTALL_DIR/users.db"
 ANTIZAPRET_INSTALL_DIR="/root/antizapret"
 ANTIZAPRET_INSTALL_SCRIPT="https://raw.githubusercontent.com/GubernievS/AntiZapret-VPN/main/setup.sh"
-NGINX_CONF_PATH="/etc/nginx/sites-available/adminantizapret"
-DOMAIN=""
-EMAIL=""
 
 # Генерируем случайный секретный ключ
 SECRET_KEY=$(openssl rand -hex 32)
@@ -104,155 +100,6 @@ init_db() {
   check_error "Не удалось инициализировать базу данных"
 }
 
-# Настройка Nginx
-configure_nginx() {
-  local mode=$1
-  
-  echo "${YELLOW}Настройка Nginx...${NC}"
-  
-  case $mode in
-    "letsencrypt")
-      # Конфигурация для Let's Encrypt
-      cat > "$NGINX_CONF_PATH" <<EOL
-server {
-    listen 80;
-    server_name $DOMAIN;
-
-    location / {
-        proxy_pass http://127.0.0.1:$APP_PORT;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-    }
-
-    location /static {
-        alias $INSTALL_DIR/static;
-        expires 30d;
-    }
-
-    # Для ACME-challenge Let's Encrypt
-    location /.well-known/acme-challenge/ {
-        root /var/www/html;
-    }
-}
-EOL
-      ;;
-    "selfsigned")
-      # Конфигурация с самоподписанным сертификатом
-      mkdir -p /etc/nginx/ssl
-      openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-        -keyout /etc/nginx/ssl/adminantizapret.key \
-        -out /etc/nginx/ssl/adminantizapret.crt \
-        -subj "/C=RU/ST=Russia/L=Moscow/O=AdminAntizapret/OU=Dev/CN=$DOMAIN"
-      
-      cat > "$NGINX_CONF_PATH" <<EOL
-server {
-    listen 80;
-    server_name $DOMAIN;
-    return 301 https://\$host\$request_uri;
-}
-
-server {
-    listen 443 ssl;
-    server_name $DOMAIN;
-
-    ssl_certificate /etc/nginx/ssl/adminantizapret.crt;
-    ssl_certificate_key /etc/nginx/ssl/adminantizapret.key;
-
-    location / {
-        proxy_pass http://127.0.0.1:$APP_PORT;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-    }
-
-    location /static {
-        alias $INSTALL_DIR/static;
-        expires 30d;
-    }
-}
-EOL
-      ;;
-    "http")
-      # Простая HTTP конфигурация
-      cat > "$NGINX_CONF_PATH" <<EOL
-server {
-    listen 80;
-    server_name $DOMAIN;
-
-    location / {
-        proxy_pass http://127.0.0.1:$APP_PORT;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-    }
-
-    location /static {
-        alias $INSTALL_DIR/static;
-        expires 30d;
-    }
-}
-EOL
-      ;;
-  esac
-
-  # Активируем конфигурацию
-  ln -sf "$NGINX_CONF_PATH" "/etc/nginx/sites-enabled/"
-  nginx -t && systemctl restart nginx
-  check_error "Ошибка конфигурации Nginx"
-
-  # Получение Let's Encrypt сертификата если выбран этот режим
-  if [ "$mode" = "letsencrypt" ]; then
-    echo "${YELLOW}Получение Let's Encrypt SSL сертификата...${NC}"
-    apt-get install -y -qq certbot python3-certbot-nginx
-    certbot --nginx --non-interactive --agree-tos --redirect --hsts --email "$EMAIL" -d "$DOMAIN"
-    check_error "Не удалось получить SSL сертификат"
-    
-    # Добавляем автоматическое обновление сертификата
-    (crontab -l 2>/dev/null; echo "0 12 * * * /usr/bin/certbot renew --quiet") | crontab -
-    echo "${GREEN}Настроено автоматическое обновление SSL сертификатов${NC}"
-  fi
-}
-
-# Проверка доступности домена
-check_domain() {
-  if [ -z "$DOMAIN" ]; then
-    echo "${RED}Домен не указан!${NC}"
-    return 1
-  fi
-
-  echo "${YELLOW}Проверка доступности домена $DOMAIN...${NC}"
-  
-  # Проверяем, что домен разрешается в IP
-  if ! dig +short "$DOMAIN" | grep -q '[0-9]'; then
-    echo "${RED}Домен $DOMAIN не разрешается в IP-адрес!${NC}"
-    echo "Убедитесь, что:"
-    echo "1. Домен правильно зарегистрирован"
-    echo "2. DNS A запись указывает на IP этого сервера"
-    echo "3. Прошло достаточно времени для распространения DNS записей"
-    return 1
-  fi
-
-  # Проверяем, что домен указывает на IP этого сервера
-  SERVER_IP=$(curl -s http://checkip.amazonaws.com)
-  DOMAIN_IP=$(dig +short "$DOMAIN" | tail -n1)
-  
-  if [ "$SERVER_IP" != "$DOMAIN_IP" ]; then
-    echo "${YELLOW}Внимание: Домен $DOMAIN указывает на IP $DOMAIN_IP, а сервер имеет IP $SERVER_IP${NC}"
-    echo "Приложение может быть недоступно по доменному имени"
-    read -p "Продолжить установку? (y/n) " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-      return 1
-    fi
-  fi
-
-  return 0
-}
-
 # Установка AdminAntizapret
 install() {
   clear
@@ -264,52 +111,13 @@ install() {
 
   # Запрос параметров
   read -p "Введите порт для сервиса [$DEFAULT_PORT]: " APP_PORT
-  APP_PORT=${APPPORT:-$DEFAULT_PORT}
+  APP_PORT=${APP_PORT:-$DEFAULT_PORT}
   
   # Проверка занятости порта
   while check_port $APP_PORT; do
     echo "${RED}Порт $APP_PORT уже занят!${NC}"
     read -p "Введите другой порт: " APP_PORT
   done
-
-  # Выбор режима работы
-  echo "${BLUE}Выберите режим работы:${NC}"
-  echo "1) Через Nginx с Let's Encrypt SSL (рекомендуется, нужен домен)"
-  echo "2) Через Nginx с самоподписанным SSL (нужен домен)"
-  echo "3) Через Nginx без SSL (HTTP)"
-  echo "4) Без Nginx (просто Flask на порту $APP_PORT)"
-  read -p "Ваш выбор [1-4]: " mode_choice
-
-  case $mode_choice in
-    1) 
-      USE_NGINX=true
-      MODE="letsencrypt"
-      read -p "Введите ваш домен (example.com): " DOMAIN
-      read -p "Введите email для уведомлений Let's Encrypt: " EMAIL
-      check_domain || exit 1
-      ;;
-    2) 
-      USE_NGINX=true
-      MODE="selfsigned"
-      read -p "Введите ваш домен (example.com): " DOMAIN
-      check_domain || exit 1
-      ;;
-    3) 
-      USE_NGINX=true
-      MODE="http"
-      read -p "Введите ваш домен или IP (или оставьте пустым для IP): " DOMAIN
-      DOMAIN=${DOMAIN:-_}
-      ;;
-    4) 
-      USE_NGINX=false
-      MODE="standalone"
-      ;;
-    *) 
-      echo "${RED}Неверный выбор, используется режим 4 (без Nginx)${NC}"
-      USE_NGINX=false
-      MODE="standalone"
-      ;;
-  esac
 
   # Обновление пакетов
   echo "${YELLOW}Обновление списка пакетов...${NC}"
@@ -319,22 +127,19 @@ install() {
   # Установка зависимостей
   echo "${YELLOW}Установка системных зависимостей...${NC}"
   apt-get install -y -qq python3 python3-pip python3-venv git wget
-  if [ "$USE_NGINX" = true ]; then
-    apt-get install -y -qq nginx
-  fi
   check_error "Не удалось установить зависимости"
 
   # Клонирование репозитория
   echo "${YELLOW}Клонирование репозитория...${NC}"
   if [ -d "$INSTALL_DIR" ]; then
-    echo "${YELLOW}Директория уже существует, обновляем...${NC}"
-    cd "$INSTALL_DIR" && git pull
+  echo "${YELLOW}Директория уже существует, обновляем...${NC}"
+  cd "$INSTALL_DIR" && git pull
   else
     git clone "$REPO_URL" "$INSTALL_DIR" > /dev/null 2>&1
   fi
   check_error "Не удалось клонировать репозиторий"
-  
-  # Копирование adminpanel.sh
+
+  # Создание директории и копирование скрипта
   echo "${YELLOW}Копирование adminpanel.sh в /root/adminpanel/...${NC}"
   mkdir -p /root/adminpanel
   cp "$INSTALL_DIR/adminpanel.sh" /root/adminpanel/
@@ -351,14 +156,12 @@ install() {
   check_error "Не удалось установить Python-зависимости"
 
   # Настройка конфигурации
-  echo "${YELLOW}Настройка конфигурации...${NC}"
-  cat > "$INSTALL_DIR/.env" <<EOL
+echo "${YELLOW}Настройка конфигурации...${NC}"
+cat > "$INSTALL_DIR/.env" <<EOL
 SECRET_KEY='$SECRET_KEY'
 APP_PORT=$APP_PORT
-USE_HTTPS=false
 EOL
-
-  chmod 600 "$INSTALL_DIR/.env"
+chmod 600 "$INSTALL_DIR/.env"
 
   # Инициализация базы данных
   init_db
@@ -389,22 +192,24 @@ EOL
   systemctl start "$SERVICE_NAME"
   check_error "Не удалось запустить сервис"
 
-  # Настройка Nginx если выбран этот режим
-  if [ "$USE_NGINX" = true ]; then
-    configure_nginx "$MODE"
-  fi
-
   # Проверка установки AntiZapret-VPN
   echo "${YELLOW}Проверка установки AntiZapret-VPN...${NC}"
-  if ! check_antizapret_installed; then
-    echo "${YELLOW}AntiZapret-VPN не установлен. Установить сейчас? (y/n)${NC}"
-    read -r answer
-    case $answer in
-      [Yy]*) install_antizapret;;
-      *) echo "${YELLOW}Пропускаем установку AntiZapret-VPN${NC}";;
-    esac
+  sleep 3
+  if systemctl is-active --quiet "$SERVICE_NAME"; then
+    echo "${GREEN}"
+    echo "┌────────────────────────────────────────────┐"
+    echo "│   Установка успешно завершена!             │"
+    echo "├────────────────────────────────────────────┤"
+    echo "│ Адрес: http://$(hostname -I | awk '{print $1}'):$APP_PORT"
+    echo "│"
+    echo "│ Для входа используйте учетные данные,"
+    echo "│ созданные при инициализации базы данных"
+    echo "└────────────────────────────────────────────┘"
+    echo "${NC}"
   else
-    echo "${GREEN}AntiZapret-VPN уже установлен.${NC}"
+    echo "${RED}Ошибка при запуске сервиса!${NC}"
+    journalctl -u "$SERVICE_NAME" -n 10 --no-pager
+    exit 1
   fi
 
   # Установка прав выполнения для client.sh и doall.sh
@@ -416,37 +221,17 @@ EOL
     echo "${RED}Ошибка при установке прав выполнения!${NC}"
   fi
 
-  # Вывод информации о завершении установки
-  echo "${GREEN}"
-  echo "┌────────────────────────────────────────────┐"
-  echo "│   Установка успешно завершена!             │"
-  echo "├────────────────────────────────────────────┤"
-  
-  case $MODE in
-    "letsencrypt")
-      echo "│ Доступно по адресу: https://$DOMAIN"
-      ;;
-    "selfsigned")
-      echo "│ Доступно по адресу: https://$DOMAIN"
-      echo "│ ${YELLOW}Внимание: Используется самоподписанный сертификат${NC}"
-      ;;
-    "http")
-      if [ "$DOMAIN" != "_" ]; then
-        echo "│ Доступно по адресу: http://$DOMAIN"
-      else
-        echo "│ Доступно по адресу: http://$(hostname -I | awk '{print $1}'):80"
-      fi
-      ;;
-    "standalone")
-      echo "│ Доступно по адресу: http://$(hostname -I | awk '{print $1}'):$APP_PORT"
-      ;;
-  esac
-  
-  echo "│"
-  echo "│ Для входа используйте учетные данные,"
-  echo "│ созданные при инициализации базы данных"
-  echo "└────────────────────────────────────────────┘"
-  echo "${NC}"
+  # Проверка и установка AntiZapret-VPN
+  if ! check_antizapret_installed; then
+    echo "${YELLOW}AntiZapret-VPN не установлен. Установить сейчас? (y/n)${NC}"
+    read -r answer
+    case $answer in
+      [Yy]*) install_antizapret;;
+      *) echo "${YELLOW}Пропускаем установку AntiZapret-VPN${NC}";;
+    esac
+  else
+    echo "${GREEN}AntiZapret-VPN уже установлен.${NC}"
+  fi
 
   press_any_key
 }

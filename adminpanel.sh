@@ -175,17 +175,17 @@ EOL
     certbot --nginx -d $DOMAIN --non-interactive --agree-tos -m $EMAIL
     check_error "Не удалось получить сертификат Let's Encrypt"
     
-    # Настройка SSL параметров
+    # Удаляем старый файл с SSL-параметрами, чтобы избежать дублирования
+    rm -f /etc/nginx/conf.d/ssl-params.conf
+    
+    # Настройка SSL параметров - только то, что не устанавливается certbot по умолчанию
     cat > /etc/nginx/conf.d/ssl-params.conf <<EOL
-ssl_protocols TLSv1.2 TLSv1.3;
-ssl_prefer_server_ciphers on;
-ssl_ciphers "EECDH+AESGCM:EDH+AESGCM:AES256+EECDH:AES256+EDH";
-ssl_ecdh_curve secp384r1;
-ssl_session_cache shared:SSL:10m;
+ssl_session_timeout 1d;
+ssl_session_cache shared:MozSSL:10m;
 ssl_session_tickets off;
 ssl_stapling on;
 ssl_stapling_verify on;
-add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload";
+add_header Strict-Transport-Security "max-age=63072000" always;
 add_header X-Frame-Options DENY;
 add_header X-Content-Type-Options nosniff;
 add_header X-XSS-Protection "1; mode=block";
@@ -193,6 +193,9 @@ EOL
     
     # Настройка автоматического обновления
     (crontab -l 2>/dev/null; echo "0 12 * * * /usr/bin/certbot renew --quiet") | crontab -
+    
+    # Проверяем конфигурацию и перезапускаем Nginx
+    nginx -t && systemctl restart nginx
     
     log "Nginx с Let's Encrypt успешно настроен"
     echo "${GREEN}Nginx с Let's Encrypt успешно настроен!${NC}"

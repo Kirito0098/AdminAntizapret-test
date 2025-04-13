@@ -144,6 +144,13 @@ setup_nginx_letsencrypt() {
     log "Настройка Nginx + Let's Encrypt для домена $DOMAIN"
     echo "${YELLOW}Установка Nginx и Let's Encrypt...${NC}"
     
+    # Удаление существующих iptables правил перед получением сертификата
+    echo "${YELLOW}Удаление iptables правил перенаправления портов...${NC}"
+    iptables -t nat -D PREROUTING -i ens3 -p tcp --dport 80 -j REDIRECT --to-port 50080 2>/dev/null || true
+    iptables -t nat -D PREROUTING -i ens3 -p tcp --dport 443 -j REDIRECT --to-port 50443 2>/dev/null || true
+    iptables -t nat -D PREROUTING -i ens3 -p udp --dport 80 -j REDIRECT --to-port 50080 2>/dev/null || true
+    iptables -t nat -D PREROUTING -i ens3 -p udp --dport 443 -j REDIRECT --to-port 50443 2>/dev/null || true
+    
     # Установка Nginx
     apt-get install -y -qq nginx >/dev/null 2>&1
     check_error "Не удалось установить Nginx"
@@ -268,7 +275,7 @@ check_dependencies() {
     local missing=0
     declare -A deps=(
         ["python3"]="Python 3"
-        ["pip3"]="Python pip"
+        ["pip"]="Python pip"
         ["git"]="Git"
         ["openssl"]="OpenSSL"
     )
@@ -622,7 +629,7 @@ install() {
     echo "${YELLOW}Установка системных зависимостей...${NC}"
     check_dependencies || {
         echo "${YELLOW}Попытка установить отсутствующие зависимости...${NC}"
-        apt-get install -y -qq python3 python3-pip python3-venv git wget openssl >/dev/null 2>&1
+        apt-get install -y -qq python3 python3-pip python3.12-venv git wget openssl >/dev/null 2>&1
         check_error "Не удалось установить зависимости"
     }
 

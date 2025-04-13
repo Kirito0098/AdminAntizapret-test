@@ -139,16 +139,6 @@ check_dns() {
   return 0
 }
 
-    # Клонирование репозитория
-echo "${YELLOW}Клонирование репозитория...${NC}"
-if [ -d "$INSTALL_DIR/.git" ]; then
-    echo "${YELLOW}Git репозиторий уже существует, обновляем...${NC}"
-    cd "$INSTALL_DIR" && git pull
-else
-    git clone "$REPO_URL" "$INSTALL_DIR" > /dev/null 2>&1
-fi
-    check_error "Не удалось клонировать репозиторий"
-
 # Установка Nginx с Let's Encrypt
 setup_nginx_letsencrypt() {
     log "Настройка Nginx + Let's Encrypt для домена $DOMAIN"
@@ -212,25 +202,21 @@ EOL
 setup_selfsigned() {
     log "Настройка самоподписанного сертификата"
     echo "${YELLOW}Настройка самоподписанного сертификата...${NC}"
-
-    # Создаём директорию, если её нет
-    mkdir -p "$INSTALL_DIR"
-    touch "$INSTALL_DIR/.env"
-
+    
     # Создание сертификата
     mkdir -p /etc/ssl/private
     openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
         -keyout /etc/ssl/private/admin-antizapret.key \
         -out /etc/ssl/certs/admin-antizapret.crt \
         -subj "/CN=$(hostname)"
-
+    
     # Настройка конфигурации Flask для HTTPS
     cat >> "$INSTALL_DIR/.env" <<EOL
 USE_HTTPS=true
 SSL_CERT=/etc/ssl/certs/admin-antizapret.crt
 SSL_KEY=/etc/ssl/private/admin-antizapret.key
 EOL
-
+    
     log "Самоподписанный сертификат создан"
     echo "${GREEN}Самоподписанный сертификат успешно создан!${NC}"
 }
@@ -495,6 +481,7 @@ uninstall() {
                 printf "%s\n" "${YELLOW}Удаление конфигурации Nginx...${NC}"
                 rm -f /etc/nginx/sites-enabled/admin-antizapret
                 rm -f /etc/nginx/sites-available/admin-antizapret
+                systemctl reload nginx
                 
                 # Удаление Let's Encrypt сертификата, если использовался
                 if [ "$use_letsencrypt" = true ]; then
@@ -505,12 +492,6 @@ uninstall() {
                     # Удаление задания cron для обновления сертификатов
                     crontab -l | grep -v 'certbot renew' | crontab -
                 fi
-                
-                # Полное удаление Nginx
-                printf "%s\n" "${YELLOW}Полное удаление Nginx...${NC}"
-                sudo apt-get remove -y nginx* > /dev/null 2>&1
-                sudo apt-get purge -y nginx* > /dev/null 2>&1
-                sudo apt-get autoremove -y > /dev/null 2>&1
             fi
             
             # Удаление самоподписанного сертификата, если использовался
@@ -561,6 +542,16 @@ install() {
         read -p "Введите другой порт: " APP_PORT
     done
 
+    # Клонирование репозитория
+    echo "${YELLOW}Клонирование репозитория...${NC}"
+    if [ -d "$INSTALL_DIR" ]; then
+        echo "${YELLOW}Директория уже существует, обновляем...${NC}"
+        cd "$INSTALL_DIR" && git pull
+    else
+        git clone "$REPO_URL" "$INSTALL_DIR" > /dev/null 2>&1
+    fi
+    check_error "Не удалось клонировать репозиторий"
+
     # Выбор способа установки
     echo "${YELLOW}Выберите способ установки:${NC}"
     echo "1) Nginx + Let's Encrypt (рекомендуется)"
@@ -608,7 +599,7 @@ install() {
     echo "${YELLOW}Обновление списка пакетов...${NC}"
     apt-get update -qq
     check_error "Не удалось обновить пакеты"
-
+    
     # Проверка и установка зависимостей
     echo "${YELLOW}Установка системных зависимостей...${NC}"
     check_dependencies || {
@@ -616,12 +607,6 @@ install() {
         apt-get install -y -qq python3 python3-pip python3-venv git wget openssl
         check_error "Не удалось установить зависимости"
     }
-
-    # Создание директории и копирование скрипта
-    echo "${YELLOW}Копирование adminpanel.sh в /root/adminpanel/...${NC}"
-    mkdir -p /root/adminpanel
-    cp "$INSTALL_DIR/adminpanel.sh" /root/adminpanel/
-    chmod +x /root/adminpanel/adminpanel.sh
 
     # Создание виртуального окружения
     echo "${YELLOW}Создание виртуального окружения...${NC}"
@@ -632,15 +617,16 @@ install() {
     echo "${YELLOW}Установка Python-зависимостей из requirements.txt...${NC}"
     "$VENV_PATH/bin/pip" install -q -r "$INSTALL_DIR/requirements.txt"
     check_error "Не удалось установить Python-зависимости"
-
+    
     # Настройка конфигурации
     echo "${YELLOW}Настройка конфигурации...${NC}"
-    cat > "$INSTALL_DIR/.env" <<EOL
+    if [ ! -f "$INSTALL_DIR/.env" ]; then
+        cat > "$INSTALL_DIR/.env" <<EOL
 SECRET_KEY='$SECRET_KEY'
 APP_PORT=$APP_PORT
-USE_HTTPS=false
 EOL
-    chmod 600 "$INSTALL_DIR/.env"
+        chmod 600 "$INSTALL_DIR/.env"
+    fi
 
     # Инициализация базы данных
     init_db

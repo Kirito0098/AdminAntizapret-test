@@ -608,13 +608,14 @@ install() {
     }
 
     # Клонирование репозитория
-    echo "${YELLOW}Клонирование репозитория...${NC}"
-    if [ -d "$INSTALL_DIR" ]; then
-        echo "${YELLOW}Директория уже существует, обновляем...${NC}"
-        cd "$INSTALL_DIR" && git pull
-    else
-        git clone "$REPO_URL" "$INSTALL_DIR" > /dev/null 2>&1
-    fi
+echo "${YELLOW}Клонирование репозитория...${NC}"
+if [ -d "$INSTALL_DIR/.git" ]; then
+    echo "${YELLOW}Git репозиторий уже существует, обновляем...${NC}"
+    cd "$INSTALL_DIR" && git pull
+else
+    git clone "$REPO_URL" "$INSTALL_DIR" > /dev/null 2>&1
+fi
+
     check_error "Не удалось клонировать репозиторий"
 
     # Создание директории и копирование скрипта

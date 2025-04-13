@@ -519,7 +519,7 @@ uninstall() {
             
             # Удаление зависимостей, если они больше не нужны
             printf "%s\n" "${YELLOW}Очистка зависимостей...${NC}"
-            apt-get autoremove -y --purge python3-venv python3-pip >/dev/null 2>&1
+            apt-get autoremove -y --purge python3-venv python3-pip nginx nginx-common >/dev/null 2>&1
         
             # Удаление файлов приложения
             printf "%s\n" "${YELLOW}Удаление логов...${NC}"

@@ -481,7 +481,6 @@ uninstall() {
                 printf "%s\n" "${YELLOW}Удаление конфигурации Nginx...${NC}"
                 rm -f /etc/nginx/sites-enabled/admin-antizapret
                 rm -f /etc/nginx/sites-available/admin-antizapret
-                systemctl reload nginx
                 
                 # Удаление Let's Encrypt сертификата, если использовался
                 if [ "$use_letsencrypt" = true ]; then
@@ -492,6 +491,12 @@ uninstall() {
                     # Удаление задания cron для обновления сертификатов
                     crontab -l | grep -v 'certbot renew' | crontab -
                 fi
+                
+                # Полное удаление Nginx
+                printf "%s\n" "${YELLOW}Полное удаление Nginx...${NC}"
+                sudo apt-get remove -y nginx* > /dev/null 2>&1
+                sudo apt-get purge -y nginx* > /dev/null 2>&1
+                sudo apt-get autoremove -y > /dev/null 2>&1
             fi
             
             # Удаление самоподписанного сертификата, если использовался

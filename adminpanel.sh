@@ -629,15 +629,26 @@ install() {
     "$VENV_PATH/bin/pip" install -q -r "$INSTALL_DIR/requirements.txt"
     check_error "Не удалось установить Python-зависимости"
     
-    # Настройка конфигурации
-    echo "${YELLOW}Настройка конфигурации...${NC}"
-    if [ ! -f "$INSTALL_DIR/.env" ]; then
-        cat > "$INSTALL_DIR/.env" <<EOL
+# Настройка конфигурации
+echo "${YELLOW}Настройка конфигурации...${NC}"
+
+# Проверка наличия файла .env
+if [ -f "$INSTALL_DIR/.env" ]; then
+    echo "${YELLOW}.env файл существует, добавляем значения, если их нет...${NC}"
+    
+    # Проверяем, есть ли уже строки SECRET_KEY и APP_PORT
+    grep -qxF "SECRET_KEY='$SECRET_KEY'" "$INSTALL_DIR/.env" || echo "SECRET_KEY='$SECRET_KEY'" >> "$INSTALL_DIR/.env"
+    grep -qxF "APP_PORT=$APP_PORT" "$INSTALL_DIR/.env" || echo "APP_PORT=$APP_PORT" >> "$INSTALL_DIR/.env"
+else
+    # Если файл не существует, создаем его с необходимыми значениями
+    echo "${YELLOW}.env файл не найден, создаем новый...${NC}"
+    cat > "$INSTALL_DIR/.env" <<EOL
 SECRET_KEY='$SECRET_KEY'
 APP_PORT=$APP_PORT
 EOL
-        chmod 600 "$INSTALL_DIR/.env"
-    fi
+    chmod 600 "$INSTALL_DIR/.env"
+fi
+
 
     # Инициализация базы данных
     init_db

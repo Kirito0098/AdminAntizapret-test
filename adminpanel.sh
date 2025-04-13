@@ -520,7 +520,11 @@ uninstall() {
             # Удаление зависимостей, если они больше не нужны
             printf "%s\n" "${YELLOW}Очистка зависимостей...${NC}"
             apt-get autoremove -y --purge python3-venv python3-pip 2>/dev/null
-            
+        
+            # Удаление файлов приложения
+            printf "%s\n" "${YELLOW}Удаление логов...${NC}"
+            rm -f "$LOG_FILE"
+
             printf "%s\n" "${GREEN}Удаление завершено успешно!${NC}"
             printf "Резервная копия сохранена в /var/backups/antizapret\n"
             press_any_key

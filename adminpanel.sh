@@ -208,7 +208,7 @@ setup_selfsigned() {
     openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
         -keyout /etc/ssl/private/admin-antizapret.key \
         -out /etc/ssl/certs/admin-antizapret.crt \
-        -subj "/CN=$(hostname)"
+        -subj "/CN=$(hostname)" >/dev/null 2>&1
     
 # Настройка конфигурации Flask для HTTPS
 if [ -f "$INSTALL_DIR/.env" ]; then

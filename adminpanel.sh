@@ -155,7 +155,7 @@ setup_nginx_letsencrypt() {
     # Настройка Nginx
     cat > /etc/nginx/sites-available/admin-antizapret <<EOL
 server {
-    listen 8080;
+    listen 80;
     server_name $DOMAIN;
     
     location / {

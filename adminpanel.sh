@@ -619,7 +619,7 @@ install() {
     echo "${YELLOW}Установка системных зависимостей...${NC}"
     check_dependencies || {
         echo "${YELLOW}Попытка установить отсутствующие зависимости...${NC}"
-        apt-get install -y -qq python3 python3-pip python3-venv git wget openssl
+        apt-get install -y -qq python3 python3-pip python3-venv git wget openssl >/dev/null 2>&1
         check_error "Не удалось установить зависимости"
     }
 

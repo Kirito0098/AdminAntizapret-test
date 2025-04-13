@@ -202,21 +202,25 @@ EOL
 setup_selfsigned() {
     log "Настройка самоподписанного сертификата"
     echo "${YELLOW}Настройка самоподписанного сертификата...${NC}"
-    
+
+    # Создаём директорию, если её нет
+    mkdir -p "$INSTALL_DIR"
+    touch "$INSTALL_DIR/.env"
+
     # Создание сертификата
     mkdir -p /etc/ssl/private
     openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
         -keyout /etc/ssl/private/admin-antizapret.key \
         -out /etc/ssl/certs/admin-antizapret.crt \
         -subj "/CN=$(hostname)"
-    
+
     # Настройка конфигурации Flask для HTTPS
     cat >> "$INSTALL_DIR/.env" <<EOL
 USE_HTTPS=true
 SSL_CERT=/etc/ssl/certs/admin-antizapret.crt
 SSL_KEY=/etc/ssl/private/admin-antizapret.key
 EOL
-    
+
     log "Самоподписанный сертификат создан"
     echo "${GREEN}Самоподписанный сертификат успешно создан!${NC}"
 }

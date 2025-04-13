@@ -145,11 +145,11 @@ setup_nginx_letsencrypt() {
     echo "${YELLOW}Установка Nginx и Let's Encrypt...${NC}"
     
     # Установка Nginx
-    apt-get install -y -qq nginx
+    apt-get install -y -qq nginx >/dev/null 2>&1
     check_error "Не удалось установить Nginx"
     
     # Установка Certbot
-    apt-get install -y -qq certbot python3-certbot-nginx
+    apt-get install -y -qq certbot python3-certbot-nginx >/dev/null 2>&1
     check_error "Не удалось установить Certbot"
     
     # Настройка Nginx

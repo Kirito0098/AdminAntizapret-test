@@ -210,12 +210,23 @@ setup_selfsigned() {
         -out /etc/ssl/certs/admin-antizapret.crt \
         -subj "/CN=$(hostname)"
     
-    # Настройка конфигурации Flask для HTTPS
-    cat >> "$INSTALL_DIR/.env" <<EOL
+# Настройка конфигурации Flask для HTTPS
+if [ -f "$INSTALL_DIR/.env" ]; then
+    echo "${YELLOW}.env файл существует, добавляем значения, если их нет...${NC}"
+    
+    # Проверяем, есть ли уже строки USE_HTTPS, SSL_CERT, SSL_KEY
+    grep -qxF "USE_HTTPS=true" "$INSTALL_DIR/.env" || echo "USE_HTTPS=true" >> "$INSTALL_DIR/.env"
+    grep -qxF "SSL_CERT=/etc/ssl/certs/admin-antizapret.crt" "$INSTALL_DIR/.env" || echo "SSL_CERT=/etc/ssl/certs/admin-antizapret.crt" >> "$INSTALL_DIR/.env"
+    grep -qxF "SSL_KEY=/etc/ssl/private/admin-antizapret.key" "$INSTALL_DIR/.env" || echo "SSL_KEY=/etc/ssl/private/admin-antizapret.key" >> "$INSTALL_DIR/.env"
+else
+    # Если файл не существует, создаем его с необходимыми значениями
+    echo "${YELLOW}.env файл не найден, создаем новый...${NC}"
+    cat > "$INSTALL_DIR/.env" <<EOL
 USE_HTTPS=true
 SSL_CERT=/etc/ssl/certs/admin-antizapret.crt
 SSL_KEY=/etc/ssl/private/admin-antizapret.key
 EOL
+fi
     
     log "Самоподписанный сертификат создан"
     echo "${GREEN}Самоподписанный сертификат успешно создан!${NC}"

@@ -172,7 +172,7 @@ EOL
     systemctl restart nginx
     
     # Получение сертификата
-    certbot certbot --nginx -d $DOMAIN --non-interactive --agree-tos -m $EMAIL --http-01-port=8443
+    certbot --nginx -d $DOMAIN --non-interactive --agree-tos -m $EMAIL
     check_error "Не удалось получить сертификат Let's Encrypt"
     
     # Удаляем старый файл с SSL-параметрами, чтобы избежать дублирования

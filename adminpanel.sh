@@ -39,16 +39,6 @@ log() {
   echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
 }
 
-    # Клонирование репозитория
-echo "${YELLOW}Клонирование репозитория...${NC}"
-if [ -d "$INSTALL_DIR/.git" ]; then
-    echo "${YELLOW}Git репозиторий уже существует, обновляем...${NC}"
-    cd "$INSTALL_DIR" && git pull
-else
-    git clone "$REPO_URL" "$INSTALL_DIR" > /dev/null 2>&1
-fi
-    check_error "Не удалось клонировать репозиторий"
-
 # Функция проверки занятости порта
 check_port() {
     port=$1
@@ -148,6 +138,16 @@ check_dns() {
   fi
   return 0
 }
+
+    # Клонирование репозитория
+echo "${YELLOW}Клонирование репозитория...${NC}"
+if [ -d "$INSTALL_DIR/.git" ]; then
+    echo "${YELLOW}Git репозиторий уже существует, обновляем...${NC}"
+    cd "$INSTALL_DIR" && git pull
+else
+    git clone "$REPO_URL" "$INSTALL_DIR" > /dev/null 2>&1
+fi
+    check_error "Не удалось клонировать репозиторий"
 
 # Установка Nginx с Let's Encrypt
 setup_nginx_letsencrypt() {

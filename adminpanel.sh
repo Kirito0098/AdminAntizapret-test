@@ -155,7 +155,7 @@ setup_nginx_letsencrypt() {
     # Настройка Nginx
     cat > /etc/nginx/sites-available/admin-antizapret <<EOL
 server {
-    listen 80;
+    listen 8080;
     server_name $DOMAIN;
     
     location / {
@@ -192,7 +192,7 @@ add_header X-XSS-Protection "1; mode=block";
 EOL
     
     # Настройка автоматического обновления
-    (crontab -l 2>/dev/null; echo "0 12 * * * /usr/bin/certbot renew --quiet") | crontab -
+    (crontab -l 2>/dev/null; echo "0 60 * * * /usr/bin/certbot renew --quiet") | crontab -
     
     # Проверяем конфигурацию и перезапускаем Nginx
     nginx -t && systemctl restart nginx

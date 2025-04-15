@@ -119,16 +119,6 @@ install() {
         read -p "Введите другой порт: " APP_PORT
     done
 
-    # Клонирование репозитория
-    echo "${YELLOW}Клонирование репозитория...${NC}"
-    if [ -d "$INSTALL_DIR" ]; then
-        echo "${YELLOW}Директория уже существует, обновляем...${NC}"
-        cd "$INSTALL_DIR" && git pull
-    else
-        git clone "$REPO_URL" "$INSTALL_DIR" > /dev/null 2>&1
-    fi
-    check_error "Не удалось клонировать репозиторий"
-
     # Выбор способа установки
     echo "${YELLOW}Выберите способ установки:${NC}"
     echo "1) Nginx + Let's Encrypt (рекомендуется)"

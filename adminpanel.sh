@@ -144,12 +144,47 @@ setup_nginx_letsencrypt() {
     log "Настройка Nginx + Let's Encrypt для домена $DOMAIN"
     echo "${YELLOW}Установка Nginx и Let's Encrypt...${NC}"
     
-    # Удаление существующих iptables правил перед получением сертификата
-    echo "${YELLOW}Удаление iptables правил перенаправления портов...${NC}"
-    iptables -t nat -D PREROUTING -i ens3 -p tcp --dport 80 -j REDIRECT --to-port 50080 2>/dev/null || true
-    iptables -t nat -D PREROUTING -i ens3 -p tcp --dport 443 -j REDIRECT --to-port 50443 2>/dev/null || true
-    iptables -t nat -D PREROUTING -i ens3 -p udp --dport 80 -j REDIRECT --to-port 50080 2>/dev/null || true
-    iptables -t nat -D PREROUTING -i ens3 -p udp --dport 443 -j REDIRECT --to-port 50443 2>/dev/null || true
+    # Проверка конфигурации AntiZapret
+    local antizapret_conf="/root/antizapret/setup"
+    local need_restart=false
+    
+    if [ -f "$antizapret_conf" ]; then
+        # Проверяем, используются ли порты 80/443 в AntiZapret
+        local tcp_ports=$(grep -oP 'OPENVPN_80_443_TCP=\K[yn]' "$antizapret_conf" 2>/dev/null)
+        local udp_ports=$(grep -oP 'OPENVPN_80_443_UDP=\K[yn]' "$antizapret_conf" 2>/dev/null)
+        
+        if [[ "$tcp_ports" == "y" || "$udp_ports" == "y" ]]; then
+            echo "${YELLOW}Для установки Nginx + Let's Encrypt необходимо освободить порты 80 и 443.${NC}"
+            echo "${YELLOW}В данный момент они заняты AntiZapret.${NC}"
+            
+            read -p "Освободить порты 80 и 443? (y/n): " choice
+            case "$choice" in
+                [Yy]*)
+                    # Меняем значения в конфигурации
+                    sed -i 's/OPENVPN_80_443_TCP=y/OPENVPN_80_443_TCP=n/' "$antizapret_conf"
+                    sed -i 's/OPENVPN_80_443_UDP=y/OPENVPN_80_443_UDP=n/' "$antizapret_conf"
+                    need_restart=true
+                    ;;
+                *)
+                    echo "${RED}Установка Nginx + Let's Encrypt невозможна без освобождения портов.${NC}"
+                    echo "${YELLOW}Возврат к выбору способа установки...${NC}"
+                    sleep 2
+                    return 1
+                    ;;
+            esac
+        fi
+    fi
+    
+    # Если нужно перезапустить AntiZapret
+    if [ "$need_restart" = true ]; then
+        echo "${YELLOW}Применение изменений конфигурации AntiZapret...${NC}"
+        if [ -f "/root/antizapret/up.sh" ]; then
+            /root/antizapret/up.sh
+            echo "${GREEN}AntiZapret перезапущен с новыми настройками.${NC}"
+        else
+            echo "${YELLOW}Файл up.sh не найден, изменения вступят после перезапуска AntiZapret.${NC}"
+        fi
+    fi
     
     # Установка Nginx
     apt-get install -y -qq nginx >/dev/null 2>&1

@@ -190,7 +190,7 @@ install() {
 
     # Проверка наличия файла .env
     if [ -f "$INSTALL_DIR/.env" ]; then
-        echo "${YELLOW} Добавляем значения в файл .env...${NC}"
+        echo "${YELLOW}Добавляем значения в файл .env...${NC}"
         
         # Проверяем, есть ли уже строки SECRET_KEY и APP_PORT
         grep -qxF "SECRET_KEY='$SECRET_KEY'" "$INSTALL_DIR/.env" || echo "SECRET_KEY='$SECRET_KEY'" >> "$INSTALL_DIR/.env"

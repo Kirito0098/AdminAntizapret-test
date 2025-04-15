@@ -39,7 +39,7 @@ if [ -d "$INSTALL_DIR" ]; then
   echo -e "${YELLOW}Директория уже существует, обновляем...${NC}"
   cd "$INSTALL_DIR" && git pull origin main > /dev/null 2>&1
 else
-  git clone "$REPO_URL" "$INSTALL_DIR"
+  git clone "$REPO_URL" "$INSTALL_DIR" > /dev/null 2>&1
 fi
 check_error "Не удалось клонировать репозиторий"
 

@@ -532,16 +532,6 @@ install() {
     printf "└────────────────────────────────────────────┘\n"
     printf "%s\n" "${NC}"
 
-    # Запрос параметров
-    read -p "Введите порт для сервиса [$DEFAULT_PORT]: " APP_PORT
-    APP_PORT=${APP_PORT:-$DEFAULT_PORT}
-    
-    # Проверка занятости порта
-    while check_port $APP_PORT; do
-        echo "${RED}Порт $APP_PORT уже занят!${NC}"
-        read -p "Введите другой порт: " APP_PORT
-    done
-
     # Клонирование репозитория
     echo "${YELLOW}Клонирование репозитория...${NC}"
     if [ -d "$INSTALL_DIR" ]; then
@@ -551,6 +541,14 @@ install() {
         git clone "$REPO_URL" "$INSTALL_DIR" > /dev/null 2>&1
     fi
     check_error "Не удалось клонировать репозиторий"
+
+    # Обновление пакетов
+    echo "${YELLOW}Обновление списка пакетов...${NC}"
+    apt-get update -qq
+    check_error "Не удалось обновить пакеты"
+
+    # Проверка и установка зависимостей
+    check_dependencies
 
     # Выбор способа установки
     while true; do
@@ -625,10 +623,30 @@ install() {
                 break
                 ;;
             2)
+                # Для самоподписанного сертификата запрашиваем порт
+                read -p "Введите порт для сервиса [$DEFAULT_PORT]: " APP_PORT
+                APP_PORT=${APP_PORT:-$DEFAULT_PORT}
+                
+                # Проверка занятости порта
+                while check_port $APP_PORT; do
+                    echo "${RED}Порт $APP_PORT уже занят!${NC}"
+                    read -p "Введите другой порт: " APP_PORT
+                done
+                
                 setup_selfsigned
                 break
                 ;;
             3)
+                # Для HTTP запрашиваем порт
+                read -p "Введите порт для сервиса [$DEFAULT_PORT]: " APP_PORT
+                APP_PORT=${APP_PORT:-$DEFAULT_PORT}
+                
+                # Проверка занятости порта
+                while check_port $APP_PORT; do
+                    echo "${RED}Порт $APP_PORT уже занят!${NC}"
+                    read -p "Введите другой порт: " APP_PORT
+                done
+                
                 echo "${YELLOW}Будет использовано HTTP соединение без шифрования${NC}"
                 break
                 ;;
@@ -638,13 +656,9 @@ install() {
         esac
     done
 
-    # Обновление пакетов
-    echo "${YELLOW}Обновление списка пакетов...${NC}"
-    apt-get update -qq
-    check_error "Не удалось обновить пакеты"
-    
-    # Проверка и установка зависимостей
-    check_dependencies
+    # Установка прав выполнения для client.sh и doall.sh
+    echo "${YELLOW}Установка прав выполнения...${NC}"
+    chmod +x "$INSTALL_DIR/client.sh" "$ANTIZAPRET_INSTALL_DIR/doall.sh" 2>/dev/null || true
 
     # Создание виртуального окружения
     echo "${YELLOW}Создание виртуального окружения...${NC}"
@@ -668,9 +682,6 @@ APP_PORT=$APP_PORT
 EOL
         chmod 600 "$INSTALL_DIR/.env"
     fi
-
-    # Инициализация базы данных
-    init_db
 
     # Создание systemd сервиса
     echo "${YELLOW}Создание systemd сервиса...${NC}"
@@ -711,6 +722,9 @@ EOL
             ;;
     esac
 
+    # Инициализация базы данных
+    init_db
+
     # Проверка установки AntiZapret-VPN
     echo "${YELLOW}Проверка установки AntiZapret-VPN...${NC}"
     sleep 3
@@ -740,10 +754,6 @@ EOL
         journalctl -u "$SERVICE_NAME" -n 10 --no-pager
         exit 1
     fi
-
-    # Установка прав выполнения для client.sh и doall.sh
-    echo "${YELLOW}Установка прав выполнения...${NC}"
-    chmod +x "$INSTALL_DIR/client.sh" "$ANTIZAPRET_INSTALL_DIR/doall.sh" 2>/dev/null || true
 
     press_any_key
 }

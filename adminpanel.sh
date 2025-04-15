@@ -542,13 +542,27 @@ install() {
     fi
     check_error "Не удалось клонировать репозиторий"
 
+    # Установка прав выполнения для client.sh и doall.sh
+    echo "${YELLOW}Установка прав выполнения...${NC}"
+    chmod +x "$INSTALL_DIR/client.sh" "$ANTIZAPRET_INSTALL_DIR/doall.sh" 2>/dev/null || true
+
     # Обновление пакетов
     echo "${YELLOW}Обновление списка пакетов...${NC}"
-    apt-get update -qq
+    apt-get update -qq > /dev/null 2>&1
     check_error "Не удалось обновить пакеты"
-
+    
     # Проверка и установка зависимостей
     check_dependencies
+
+    # Создание виртуального окружения
+    echo "${YELLOW}Создание виртуального окружения...${NC}"
+    python3 -m venv "$VENV_PATH"
+    check_error "Не удалось создать виртуальное окружение"
+
+    # Установка Python-зависимостей
+    echo "${YELLOW}Установка Python-зависимостей...${NC}"
+    "$VENV_PATH/bin/pip" install -q -r "$INSTALL_DIR/requirements.txt"
+    check_error "Не удалось установить Python-зависимости"
 
     # Выбор способа установки
     while true; do
@@ -656,20 +670,6 @@ install() {
         esac
     done
 
-    # Установка прав выполнения для client.sh и doall.sh
-    echo "${YELLOW}Установка прав выполнения...${NC}"
-    chmod +x "$INSTALL_DIR/client.sh" "$ANTIZAPRET_INSTALL_DIR/doall.sh" 2>/dev/null || true
-
-    # Создание виртуального окружения
-    echo "${YELLOW}Создание виртуального окружения...${NC}"
-    python3 -m venv "$VENV_PATH"
-    check_error "Не удалось создать виртуальное окружение"
-
-    # Установка Python-зависимостей
-    echo "${YELLOW}Установка Python-зависимостей...${NC}"
-    "$VENV_PATH/bin/pip" install -q -r "$INSTALL_DIR/requirements.txt"
-    check_error "Не удалось установить Python-зависимости"
-    
     # Настройка конфигурации
     echo "${YELLOW}Настройка конфигурации...${NC}"
     if [ -f "$INSTALL_DIR/.env" ]; then
@@ -682,6 +682,9 @@ APP_PORT=$APP_PORT
 EOL
         chmod 600 "$INSTALL_DIR/.env"
     fi
+
+    # Инициализация базы данных
+    init_db
 
     # Создание systemd сервиса
     echo "${YELLOW}Создание systemd сервиса...${NC}"
@@ -722,12 +725,7 @@ EOL
             ;;
     esac
 
-    # Инициализация базы данных
-    init_db
-
-    # Проверка установки AntiZapret-VPN
-    echo "${YELLOW}Проверка установки AntiZapret-VPN...${NC}"
-    sleep 3
+    # Проверка установки
     if systemctl is-active --quiet "$SERVICE_NAME"; then
         echo "${GREEN}"
         echo "┌────────────────────────────────────────────┐"

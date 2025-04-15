@@ -581,9 +581,8 @@ install() {
     echo "${YELLOW}Выберите способ установки:${NC}"
     echo "1) Nginx + Let's Encrypt (рекомендуется)"
     echo "2) Самоподписанный сертификат"
-    echo "3) Собственные сертификаты (не через Let's Encrypt)"
-    echo "4) Только HTTP (без HTTPS)"
-    read -p "Ваш выбор [1-4]: " ssl_choice
+    echo "3) Только HTTP (без HTTPS)"
+    read -p "Ваш выбор [1-3]: " ssl_choice
 
     case $ssl_choice in
         1)
@@ -608,27 +607,11 @@ install() {
                 read -p "Продолжить установку? (y/n): " choice
                 [[ "$choice" =~ ^[Yy]$ ]] || exit 1
             fi
-            setup_nginx_letsencrypt
             ;;
         2)
             setup_selfsigned
-            setup_nginx_custom_ssl
             ;;
         3)
-            # Собственные сертификаты
-            echo "${YELLOW}Введите путь к вашему сертификату (CRT):${NC}"
-            read -p "Путь к сертификату: " CERT_PATH
-            echo "${YELLOW}Введите путь к вашему ключу (KEY):${NC}"
-            read -p "Путь к ключу: " KEY_PATH
-
-            # Копирование сертификатов в нужное место
-            cp "$CERT_PATH" /etc/ssl/certs/admin-antizapret.crt
-            cp "$KEY_PATH" /etc/ssl/private/admin-antizapret.key
-
-            # Настройка Nginx с собственными сертификатами
-            setup_custom_ssl
-            ;;
-        4)
             echo "${YELLOW}Будет использовано HTTP соединение без шифрования${NC}"
             ;;
         *)
@@ -659,26 +642,26 @@ install() {
     echo "${YELLOW}Установка Python-зависимостей из requirements.txt...${NC}"
     "$VENV_PATH/bin/pip" install -q -r "$INSTALL_DIR/requirements.txt"
     check_error "Не удалось установить Python-зависимости"
+    
+# Настройка конфигурации
+echo "${YELLOW}Настройка конфигурации...${NC}"
 
-    # Настройка конфигурации
-    echo "${YELLOW}Настройка конфигурации...${NC}"
-
-    # Проверка наличия файла .env
-    if [ -f "$INSTALL_DIR/.env" ]; then
-        echo "${YELLOW}.env файл существует, добавляем значения, если их нет...${NC}"
-        
-        # Проверяем, есть ли уже строки SECRET_KEY и APP_PORT
-        grep -qxF "SECRET_KEY='$SECRET_KEY'" "$INSTALL_DIR/.env" || echo "SECRET_KEY='$SECRET_KEY'" >> "$INSTALL_DIR/.env"
-        grep -qxF "APP_PORT=$APP_PORT" "$INSTALL_DIR/.env" || echo "APP_PORT=$APP_PORT" >> "$INSTALL_DIR/.env"
-    else
-        # Если файл не существует, создаем его с необходимыми значениями
-        echo "${YELLOW}.env файл не найден, создаем новый...${NC}"
-        cat > "$INSTALL_DIR/.env" <<EOL
+# Проверка наличия файла .env
+if [ -f "$INSTALL_DIR/.env" ]; then
+    echo "${YELLOW}.env файл существует, добавляем значения, если их нет...${NC}"
+    
+    # Проверяем, есть ли уже строки SECRET_KEY и APP_PORT
+    grep -qxF "SECRET_KEY='$SECRET_KEY'" "$INSTALL_DIR/.env" || echo "SECRET_KEY='$SECRET_KEY'" >> "$INSTALL_DIR/.env"
+    grep -qxF "APP_PORT=$APP_PORT" "$INSTALL_DIR/.env" || echo "APP_PORT=$APP_PORT" >> "$INSTALL_DIR/.env"
+else
+    # Если файл не существует, создаем его с необходимыми значениями
+    echo "${YELLOW}.env файл не найден, создаем новый...${NC}"
+    cat > "$INSTALL_DIR/.env" <<EOL
 SECRET_KEY='$SECRET_KEY'
 APP_PORT=$APP_PORT
 EOL
-        chmod 600 "$INSTALL_DIR/.env"
-    fi
+    chmod 600 "$INSTALL_DIR/.env"
+fi
 
 
     # Инициализация базы данных
@@ -710,11 +693,21 @@ EOL
     systemctl start "$SERVICE_NAME"
     check_error "Не удалось запустить сервис"
 
+    # Настройка выбранного способа HTTPS
+    case $ssl_choice in
+        1)
+            setup_nginx_letsencrypt
+            ;;
+        2)
+            systemctl restart "$SERVICE_NAME"
+            ;;
+        3)
+            echo "${YELLOW}HTTP режим активирован${NC}"
+            ;;
+    esac
+
     # Настройка фаервола
     configure_firewall
-
-    press_any_key
-}
 
     # Проверка установки AntiZapret-VPN
     echo "${YELLOW}Проверка установки AntiZapret-VPN...${NC}"

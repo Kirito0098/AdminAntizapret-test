@@ -544,7 +544,7 @@ install() {
     echo "${YELLOW}Клонирование репозитория...${NC}"
     if [ -d "$INSTALL_DIR" ]; then
         echo "${YELLOW}Директория уже существует, обновляем...${NC}"
-        cd "$INSTALL_DIR" && git pull
+        cd "$INSTALL_DIR" && git pull > /dev/null 2>&1
     else
         git clone "$REPO_URL" "$INSTALL_DIR" > /dev/null 2>&1
     fi
@@ -568,7 +568,7 @@ install() {
                 local udp_ports=$(grep -oP 'OPENVPN_80_443_UDP=\K[yn]' "$antizapret_conf" 2>/dev/null)
 
                 if [[ "$tcp_ports" == "y" || "$udp_ports" == "y" ]]; then
-                    echo "${RED}ВНИМАНИЕ: AntiZapret использует порты 80/443${NC}"
+                    echo "${RED}ВНИМАНИЕ: AntiZapret-VPN использует порты 80/443 как резервные для OpenVPN${NC}"
                     echo "${YELLOW}Для Nginx + Let's Encrypt эти порты должны быть свободны${NC}"
                     
                     read -p "Освободить порты? (y/n): " choice
@@ -589,8 +589,8 @@ install() {
             fi
 
             if [ "$need_restart" = true ]; then
-                echo "${YELLOW}Перезапуск AntiZapret...${NC}"
-                [ -f "/root/antizapret/up.sh" ] && /root/antizapret/up.sh
+                echo "${YELLOW}Освобождение портов 80 и 443...${NC}"
+                [ -f "/root/antizapret/up.sh" ] && /root/antizapret/up.sh > /dev/null 2>&1
                 sleep 2
             fi
 
@@ -636,11 +636,8 @@ install() {
     
     # Проверка и установка зависимостей
     echo "${YELLOW}Установка системных зависимостей...${NC}"
-    check_dependencies || {
-        echo "${YELLOW}Попытка установить отсутствующие зависимости...${NC}"
-        apt-get install -y -qq python3 python3-pip python3.12-venv git wget openssl >/dev/null 2>&1
-        check_error "Не удалось установить зависимости"
-    }
+    apt-get install -y -qq python3 python3-pip python3.12-venv git wget openssl >/dev/null 2>&1
+    check_error "Не удалось установить зависимости"
 
     # Создание виртуального окружения
     echo "${YELLOW}Создание виртуального окружения...${NC}"

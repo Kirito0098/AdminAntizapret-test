@@ -68,28 +68,37 @@ check_dependencies() {
     local missing=0
     declare -A deps=(
         ["python3"]="Python 3"
+        ["python3-venv"]="Python 3 venv"
         ["pip"]="Python pip"
         ["git"]="Git"
         ["wget"]="Wget"
         ["openssl"]="OpenSSL"
     )
     
-    echo "${YELLOW}Проверка системных зависимостей...${NC}"
+    echo "${YELLOW}Проверка и обновление системных зависимостей...${NC}"
     
+    # Обновляем пакетный менеджер перед проверкой
+    apt-get update -qq
+    
+    # Устанавливаем все зависимости, даже если они уже есть (чтобы обновить до последней версии)
+    echo "${YELLOW}Установка/обновление зависимостей: ${!deps[@]}${NC}"
+    apt-get install -y -qq "${!deps[@]}" >/dev/null 2>&1
+    check_error "Не удалось установить зависимости"
+    
+    # Дополнительная проверка, что все команды доступны
     for cmd in "${!deps[@]}"; do
         if ! command -v "$cmd" >/dev/null; then
-            echo "${RED}Ошибка: ${deps[$cmd]} не установлен${NC}"
+            echo "${RED}Ошибка: ${deps[$cmd]} не установлен после попытки установки${NC}"
             missing=$((missing+1))
         fi
     done
     
     if [ $missing -gt 0 ]; then
-        echo "${YELLOW}Попытка установить отсутствующие зависимости...${NC}"
-        apt-get update -qq
-        apt-get install -y -qq "${!deps[@]}" >/dev/null 2>&1
-        check_error "Не удалось установить зависимости"
+        echo "${RED}Критические зависимости отсутствуют!${NC}"
+        exit 1
     fi
     
+    echo "${GREEN}Все зависимости успешно установлены/обновлены.${NC}"
     return 0
 }
 
@@ -128,18 +137,27 @@ check_antizapret_installed() {
 
 # Установка AntiZapret-VPN
 install_antizapret() {
-  log "Установка AntiZapret-VPN"
-  echo "${YELLOW}Установка AntiZapret-VPN...${NC}"
-  bash <(wget --no-hsts -qO- "$ANTIZAPRET_INSTALL_SCRIPT")
-  check_error "Не удалось установить AntiZapret-VPN"
-  
-  if check_antizapret_installed; then
+    log "Попытка установки AntiZapret-VPN"
+    echo "${YELLOW}Установка AntiZapret-VPN (обязательный компонент)...${NC}"
+
+    # Запуск установочного скрипта с проверкой ошибок
+    if ! bash <(wget --no-hsts -qO- "$ANTIZAPRET_INSTALL_SCRIPT"); then
+        log "Ошибка: сбой установки AntiZapret-VPN"
+        echo "${RED}Не удалось установить AntiZapret-VPN!${NC}"
+        echo "${YELLOW}Админ-панель требует AntiZapret-VPN для работы. Установка прервана.${NC}"
+        exit 1  # Жёсткое завершение скрипта
+    fi
+
+    # Проверка, что установка прошла успешно
+    if ! check_antizapret_installed; then
+        log "Ошибка: AntiZapret-VPN не обнаружен после установки"
+        echo "${RED}AntiZapret-VPN не установлен, хотя скрипт завершился без ошибок!${NC}"
+        echo "${YELLOW}Проверьте вручную: $ANTIZAPRET_INSTALL_DIR${NC}"
+        exit 1
+    fi
+
     log "AntiZapret-VPN успешно установлен"
-    echo "${GREEN}AntiZapret-VPN успешно установлен!${NC}"
-  else
-    log "AntiZapret-VPN не установлен"
-    echo "${YELLOW}AntiZapret-VPN не установлен, но это не критично.${NC}"
-  fi
+    echo "${GREEN}AntiZapret-VPN установлен и готов к работе.${NC}"
 }
 
 # Инициализация базы данных
@@ -291,24 +309,6 @@ configure_firewall() {
     else
         echo "${YELLOW}Фаервол не найден, пропускаем настройку${NC}"
     fi
-}
-
-# Включение режима обслуживания
-enable_maintenance() {
-    log "Активация режима обслуживания"
-    echo "${YELLOW}Активация режима обслуживания...${NC}"
-    systemctl stop $SERVICE_NAME
-    cp "$INSTALL_DIR/templates/maintenance.html" /var/www/html/
-    echo "${GREEN}Режим обслуживания активирован.${NC}"
-}
-
-# Отключение режима обслуживания
-disable_maintenance() {
-    log "Деактивация режима обслуживания"
-    echo "${YELLOW}Деактивация режима обслуживания...${NC}"
-    rm -f /var/www/html/maintenance.html
-    systemctl start $SERVICE_NAME
-    echo "${GREEN}Режим обслуживания отключен.${NC}"
 }
 
 # Валидация конфигурации
@@ -773,18 +773,6 @@ EOL
     echo "${YELLOW}Установка прав выполнения...${NC}"
     chmod +x "$INSTALL_DIR/client.sh" "$ANTIZAPRET_INSTALL_DIR/doall.sh" 2>/dev/null || true
 
-    # Проверка и установка AntiZapret-VPN
-    if ! check_antizapret_installed; then
-        echo "${YELLOW}AntiZapret-VPN не установлен. Установить сейчас? (y/n)${NC}"
-        read -r answer
-        case $answer in
-            [Yy]*) install_antizapret;;
-            *) echo "${YELLOW}Пропускаем установку AntiZapret-VPN${NC}";;
-        esac
-    else
-        echo "${GREEN}AntiZapret-VPN уже установлен.${NC}"
-    fi
-
     press_any_key
 }
 
@@ -884,11 +872,9 @@ main_menu() {
         printf "│ 8. Восстановить из резервной копии         │\n"
         printf "│ 9. Удалить AdminAntizapret                 │\n"
         printf "│ 10. Проверить и установить права           │\n"
-        printf "│ 11. Изменить порт сервиса                  │\n"
+        printf "│ 11. Изменить порт сервиса (Для http)       │\n"
         printf "│ 12. Мониторинг системы                     │\n"
-        printf "│ 13. Включить режим обслуживания            │\n"
-        printf "│ 14. Отключить режим обслуживания           │\n"
-        printf "│ 15. Проверить конфигурацию                 │\n"
+        printf "│ 13. Проверить конфигурацию                 │\n"
         printf "│ 0. Выход                                   │\n"
         printf "└────────────────────────────────────────────┘\n"
         printf "%s\n" "${NC}"
@@ -912,9 +898,7 @@ main_menu() {
             10) check_and_set_permissions;;
             11) change_port;;
             12) show_monitor;;
-            13) enable_maintenance;;
-            14) disable_maintenance;;
-            15) validate_config; press_any_key;;
+            13) validate_config; press_any_key;;
             0) exit 0;;
             *) printf "%s\n" "${RED}Неверный выбор!${NC}"; sleep 1;;
         esac

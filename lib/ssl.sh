@@ -70,7 +70,7 @@ EOL
     
     # Настройка конфигурации Flask для HTTPS
     if [ -f "$INSTALL_DIR/.env" ]; then
-        echo "${YELLOW}.env файл существует, добавляем HTTPS параметры...${NC}"
+        echo "${YELLOW}Файл .env существует, добавляем HTTPS параметры...${NC}"
         grep -qxF "USE_HTTPS=true" "$INSTALL_DIR/.env" || echo "USE_HTTPS=true" >> "$INSTALL_DIR/.env"
     else
         echo "${YELLOW}Создание .env файла с HTTPS параметрами...${NC}"
@@ -95,13 +95,13 @@ setup_selfsigned() {
     
     # Настройка конфигурации Flask для HTTPS
     if [ -f "$INSTALL_DIR/.env" ]; then
-        echo "${YELLOW}.env файл существует, добавляем значения, если их нет...${NC}"
+        echo "${YELLOW} Файл .env существует, добавляем значения...${NC}"
         
         grep -qxF "USE_HTTPS=true" "$INSTALL_DIR/.env" || echo "USE_HTTPS=true" >> "$INSTALL_DIR/.env"
         grep -qxF "SSL_CERT=/etc/ssl/certs/admin-antizapret.crt" "$INSTALL_DIR/.env" || echo "SSL_CERT=/etc/ssl/certs/admin-antizapret.crt" >> "$INSTALL_DIR/.env"
         grep -qxF "SSL_KEY=/etc/ssl/private/admin-antizapret.key" "$INSTALL_DIR/.env" || echo "SSL_KEY=/etc/ssl/private/admin-antizapret.key" >> "$INSTALL_DIR/.env"
     else
-        echo "${YELLOW}.env файл не найден, создаем новый...${NC}"
+        echo "${YELLOW}Файл .env не найден, создаем новый...${NC}"
         cat > "$INSTALL_DIR/.env" <<EOL
 USE_HTTPS=true
 SSL_CERT=/etc/ssl/certs/admin-antizapret.crt

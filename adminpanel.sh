@@ -65,40 +65,13 @@ check_port() {
 
 # Проверка зависимостей
 check_dependencies() {
-    local missing=0
-    declare -A deps=(
-        ["python3"]="Python 3"
-        ["pip"]="Python pip"
-        ["git"]="Git"
-        ["wget"]="Wget"
-        ["openssl"]="OpenSSL"
-    )
-    
-    echo "${YELLOW}Проверка и обновление системных зависимостей...${NC}"
-    
-    # Обновляем пакетный менеджер перед проверкой
-    apt-get update -qq
-    
-    # Устанавливаем все зависимости, даже если они уже есть (чтобы обновить до последней версии)
-    echo "${YELLOW}Установка/обновление зависимостей: ${!deps[@]}${NC}"
-    apt-get install -y -qq "${!deps[@]}" >/dev/null 2>&1
-    check_error "Не удалось установить зависимости"
-    
-    # Дополнительная проверка, что все команды доступны
-    for cmd in "${!deps[@]}"; do
-        if ! command -v "$cmd" >/dev/null; then
-            echo "${RED}Ошибка: ${deps[$cmd]} не установлен после попытки установки${NC}"
-            missing=$((missing+1))
-        fi
-    done
-    
-    if [ $missing -gt 0 ]; then
-        echo "${RED}Критические зависимости отсутствуют!${NC}"
+    echo "Установка зависимостей..."
+    apt-get update -qq && apt-get install -y -qq python3 python3-pip git wget openssl python3-venv
+    if [ $? -ne 0 ]; then
+        echo "Ошибка установки зависимостей!"
         exit 1
     fi
-    
-    echo "${GREEN}Все зависимости успешно установлены/обновлены.${NC}"
-    return 0
+    echo "Зависимости установлены"
 }
 
 # Функция проверки ошибок

@@ -142,20 +142,20 @@ check_dns() {
 # Установка Nginx с Let's Encrypt
 setup_nginx_letsencrypt() {
     log "Настройка Nginx + Let's Encrypt для домена $DOMAIN"
-    echo "${YELLOW}Установка Nginx и Let's Encrypt...${NC}"
-    
+    echo "${YELLOW}Проверка доступности портов 80 и 443...${NC}"
+
     # Проверка конфигурации AntiZapret
     local antizapret_conf="/root/antizapret/setup"
     local need_restart=false
-    
+
     if [ -f "$antizapret_conf" ]; then
         # Проверяем, используются ли порты 80/443 в AntiZapret
         local tcp_ports=$(grep -oP 'OPENVPN_80_443_TCP=\K[yn]' "$antizapret_conf" 2>/dev/null)
         local udp_ports=$(grep -oP 'OPENVPN_80_443_UDP=\K[yn]' "$antizapret_conf" 2>/dev/null)
-        
+
         if [[ "$tcp_ports" == "y" || "$udp_ports" == "y" ]]; then
-            echo "${YELLOW}Для установки Nginx + Let's Encrypt необходимо освободить порты 80 и 443.${NC}"
-            echo "${YELLOW}В данный момент они заняты AntiZapret.${NC}"
+            echo "${RED}ВНИМАНИЕ: AntiZapret в данный момент использует порты 80 и 443.${NC}"
+            echo "${YELLOW}Для работы Nginx + Let's Encrypt эти порты должны быть свободны.${NC}"
             
             read -p "Освободить порты 80 и 443? (y/n): " choice
             case "$choice" in
@@ -174,17 +174,37 @@ setup_nginx_letsencrypt() {
             esac
         fi
     fi
-    
+
     # Если нужно перезапустить AntiZapret
     if [ "$need_restart" = true ]; then
         echo "${YELLOW}Применение изменений конфигурации AntiZapret...${NC}"
         if [ -f "/root/antizapret/up.sh" ]; then
             /root/antizapret/up.sh
-            echo "${GREEN}AntiZapret перезапущен с новыми настройками.${NC}"
+            echo "${GREEN}AntiZapret перезапущен, порты 80/443 освобождены.${NC}"
         else
-            echo "${YELLOW}Файл up.sh не найден, изменения вступят после перезапуска AntiZapret.${NC}"
+            echo "${YELLOW}Файл up.sh не найден. Изменения вступят после перезапуска AntiZapret.${NC}"
         fi
+        sleep 2
     fi
+
+    # Только после проверки портов запрашиваем домен и email
+    while true; do
+        read -p "Введите доменное имя (например, example.com): " DOMAIN
+        if validate_domain "$DOMAIN"; then
+            break
+        fi
+    done
+
+    while true; do
+        read -p "Введите email для Let's Encrypt: " EMAIL
+        if [[ "$EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
+            break
+        else
+            echo "${RED}Неверный формат email!${NC}"
+        fi
+    done
+
+    echo "${YELLOW}Установка Nginx и Let's Encrypt...${NC}"
     
     # Установка Nginx
     apt-get install -y -qq nginx >/dev/null 2>&1

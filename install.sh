@@ -43,13 +43,6 @@ else
 fi
 check_error "Не удалось клонировать репозиторий"
 
-# Настройка прав
-echo -e "${YELLOW}Настройка прав доступа...${NC}"
-chown -R root:root "$INSTALL_DIR"
-chmod -R 755 "$INSTALL_DIR"
-find "$INSTALL_DIR" -type f -exec chmod 644 {} \;
-chmod +x "$ADMINPANEL_SCRIPT" "$INSTALL_DIR/client.sh"
-
 
 # Запуск панели управления
 echo -e "${GREEN}Установка завершена! Запуск панели управления...${NC}"

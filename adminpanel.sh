@@ -65,13 +65,13 @@ check_port() {
 
 # Проверка зависимостей
 check_dependencies() {
-    echo "Установка зависимостей..."
+    echo "${YELLOW}Установка зависимостей...${NC}" 
     apt-get update --quiet --quiet && apt-get install -y ---quiet --quiet python3 python3-pip git wget openssl python3-venv > /dev/null 
     if [ $? -ne 0 ]; then
         echo "Ошибка установки зависимостей!"
         exit 1
     fi
-    echo "Зависимости установлены"
+    echo "${YELLOW}Зависимости установлены.${NC}"
 }
 
 # Функция проверки ошибок

@@ -63,6 +63,36 @@ check_port() {
     return 1
 }
 
+# Проверка зависимостей
+check_dependencies() {
+    local missing=0
+    declare -A deps=(
+        ["python3"]="Python 3"
+        ["pip"]="Python pip"
+        ["git"]="Git"
+        ["wget"]="Wget"
+        ["openssl"]="OpenSSL"
+    )
+    
+    echo "${YELLOW}Проверка системных зависимостей...${NC}"
+    
+    for cmd in "${!deps[@]}"; do
+        if ! command -v "$cmd" >/dev/null; then
+            echo "${RED}Ошибка: ${deps[$cmd]} не установлен${NC}"
+            missing=$((missing+1))
+        fi
+    done
+    
+    if [ $missing -gt 0 ]; then
+        echo "${YELLOW}Попытка установить отсутствующие зависимости...${NC}"
+        apt-get update -qq
+        apt-get install -y -qq "${!deps[@]}" >/dev/null 2>&1
+        check_error "Не удалось установить зависимости"
+    fi
+    
+    return 0
+}
+
 # Функция проверки ошибок
 check_error() {
   if [ $? -ne 0 ]; then
@@ -178,7 +208,7 @@ EOL
     # Удаляем старый файл с SSL-параметрами, чтобы избежать дублирования
     rm -f /etc/nginx/conf.d/ssl-params.conf
     
-    # Настройка SSL параметров - только то, что не устанавливается certbot по умолчанию
+    # Настройка SSL параметров
     cat > /etc/nginx/conf.d/ssl-params.conf <<EOL
 ssl_session_timeout 1d;
 ssl_session_cache shared:MozSSL:10m;
@@ -213,23 +243,23 @@ setup_selfsigned() {
         -out /etc/ssl/certs/admin-antizapret.crt \
         -subj "/CN=$(hostname)" >/dev/null 2>&1
     
-# Настройка конфигурации Flask для HTTPS
-if [ -f "$INSTALL_DIR/.env" ]; then
-    echo "${YELLOW}Добавляем значения в .env...${NC}"
-    
-    # Проверяем, есть ли уже строки USE_HTTPS, SSL_CERT, SSL_KEY
-    grep -qxF "USE_HTTPS=true" "$INSTALL_DIR/.env" || echo "USE_HTTPS=true" >> "$INSTALL_DIR/.env"
-    grep -qxF "SSL_CERT=/etc/ssl/certs/admin-antizapret.crt" "$INSTALL_DIR/.env" || echo "SSL_CERT=/etc/ssl/certs/admin-antizapret.crt" >> "$INSTALL_DIR/.env"
-    grep -qxF "SSL_KEY=/etc/ssl/private/admin-antizapret.key" "$INSTALL_DIR/.env" || echo "SSL_KEY=/etc/ssl/private/admin-antizapret.key" >> "$INSTALL_DIR/.env"
-else
+    # Настройка конфигурации Flask для HTTPS
+    if [ -f "$INSTALL_DIR/.env" ]; then
+        echo "${YELLOW}Добавляем значения в .env...${NC}"
+
+        # Проверяем, есть ли уже строки USE_HTTPS, SSL_CERT, SSL_KEY
+        grep -qxF "USE_HTTPS=true" "$INSTALL_DIR/.env" || echo "USE_HTTPS=true" >> "$INSTALL_DIR/.env"
+        grep -qxF "SSL_CERT=/etc/ssl/certs/admin-antizapret.crt" "$INSTALL_DIR/.env" || echo "SSL_CERT=/etc/ssl/certs/admin-antizapret.crt" >> "$INSTALL_DIR/.env"
+        grep -qxF "SSL_KEY=/etc/ssl/private/admin-antizapret.key" "$INSTALL_DIR/.env" || echo "SSL_KEY=/etc/ssl/private/admin-antizapret.key" >> "$INSTALL_DIR/.env"
+    else
     # Если файл не существует, создаем его с необходимыми значениями
     echo "${YELLOW}Создаем файл .env...${NC}"
-    cat > "$INSTALL_DIR/.env" <<EOL
+        cat > "$INSTALL_DIR/.env" <<EOL
 USE_HTTPS=true
 SSL_CERT=/etc/ssl/certs/admin-antizapret.crt
 SSL_KEY=/etc/ssl/private/admin-antizapret.key
 EOL
-fi
+    fi
     
     log "Самоподписанный сертификат создан"
     echo "${GREEN}Самоподписанный сертификат успешно создан!${NC}"
@@ -546,92 +576,95 @@ install() {
         echo "${YELLOW}Директория уже существует, обновляем...${NC}"
         cd "$INSTALL_DIR" && git pull > /dev/null 2>&1
     else
-        git clone "$REPO_URL" "$INSTALL_DIR" > /dev/null
+        git clone "$REPO_URL" "$INSTALL_DIR" > /dev/null 2>&1
     fi
     check_error "Не удалось клонировать репозиторий"
 
     # Выбор способа установки
-    echo "${YELLOW}Выберите способ установки:${NC}"
-    echo "1) Nginx + Let's Encrypt (рекомендуется)"
-    echo "2) Самоподписанный сертификат"
-    echo "3) Только HTTP (без HTTPS)"
-    read -p "Ваш выбор [1-3]: " ssl_choice
+    while true; do
+        echo "${YELLOW}Выберите способ установки:${NC}"
+        echo "1) Nginx + Let's Encrypt (рекомендуется)"
+        echo "2) Самоподписанный сертификат"
+        echo "3) Только HTTP (без HTTPS)"
+        read -p "Ваш выбор [1-3]: " ssl_choice
 
-    case $ssl_choice in
-        1)
-            # Проверка конфигурации AntiZapret перед запросом домена
-            local antizapret_conf="/root/antizapret/setup"
-            local need_restart=false
+        case $ssl_choice in
+            1)
+                # Проверка конфигурации AntiZapret перед запросом домена
+                antizapret_conf="/root/antizapret/setup"
+                need_restart=false
+                ports_ok=true
 
-            if [ -f "$antizapret_conf" ]; then
-                local tcp_ports=$(grep -oP 'OPENVPN_80_443_TCP=\K[yn]' "$antizapret_conf" 2>/dev/null)
-                local udp_ports=$(grep -oP 'OPENVPN_80_443_UDP=\K[yn]' "$antizapret_conf" 2>/dev/null)
+                if [ -f "$antizapret_conf" ]; then
+                    tcp_ports=$(grep -oP 'OPENVPN_80_443_TCP=\K[yn]' "$antizapret_conf" 2>/dev/null)
+                    udp_ports=$(grep -oP 'OPENVPN_80_443_UDP=\K[yn]' "$antizapret_conf" 2>/dev/null)
 
-                if [[ "$tcp_ports" == "y" || "$udp_ports" == "y" ]]; then
-                    echo "${RED}ВНИМАНИЕ: AntiZapret-VPN использует порты 80/443 как резервные для OpenVPN${NC}"
-                    echo "${YELLOW}Для Nginx + Let's Encrypt эти порты должны быть свободны${NC}"
-                    
-                    read -p "Освободить порты? (y/n): " choice
-                    case "$choice" in
-                        [Yy]*)
-                            sed -i 's/OPENVPN_80_443_TCP=y/OPENVPN_80_443_TCP=n/' "$antizapret_conf"
-                            sed -i 's/OPENVPN_80_443_UDP=y/OPENVPN_80_443_UDP=n/' "$antizapret_conf"
-                            need_restart=true
-                            ;;
-                        *)
-                            echo "${RED}Установка невозможна без освобождения портов${NC}"
-                            retry_ssl_choice=true
-                            ;;
-                    esac
+                    if [[ "$tcp_ports" == "y" || "$udp_ports" == "y" ]]; then
+                        echo "${RED}ВНИМАНИЕ: AntiZapret использует порты 80/443${NC}"
+                        echo "${YELLOW}Для Nginx + Let's Encrypt эти порты должны быть свободны${NC}"
+                        
+                        read -p "Освободить порты? (y/n): " choice
+                        case "$choice" in
+                            [Yy]*)
+                                sed -i 's/OPENVPN_80_443_TCP=y/OPENVPN_80_443_TCP=n/' "$antizapret_conf"
+                                sed -i 's/OPENVPN_80_443_UDP=y/OPENVPN_80_443_UDP=n/' "$antizapret_conf"
+                                need_restart=true
+                                ;;
+                            *)
+                                echo "${RED}Установка невозможна без освобождения портов${NC}"
+                                ports_ok=false
+                                ;;
+                        esac
+                    fi
                 fi
-            fi
 
-            if [ "$retry_ssl_choice" = true ]; then
-                # Возвращаемся к выбору способа установки
-                continue_install=false
+                if [ "$ports_ok" = false ]; then
+                    continue
+                fi
+
+                if [ "$need_restart" = true ] && [ -f "/root/antizapret/up.sh" ]; then
+                    echo "${YELLOW}Перезапуск AntiZapret...${NC}"
+                    /root/antizapret/up.sh
+                    sleep 2
+                fi
+
+                # Запрос домена и email
+                while true; do
+                    read -p "Введите доменное имя (например, example.com): " DOMAIN
+                    if validate_domain "$DOMAIN"; then
+                        break
+                    fi
+                done
+                
+                while true; do
+                    read -p "Введите email для Let's Encrypt: " EMAIL
+                    if [[ "$EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
+                        break
+                    else
+                        echo "${RED}Неверный формат email!${NC}"
+                    fi
+                done
+                
+                if ! check_dns; then
+                    echo "${YELLOW}Продолжение без корректной DNS записи может привести к ошибкам.${NC}"
+                    read -p "Продолжить установку? (y/n): " choice
+                    [[ "$choice" =~ ^[Yy]$ ]] || continue
+                fi
                 break
-            fi
-
-            if [ "$need_restart" = true ]; then
-                echo "${YELLOW}Освобождение портов 80 и 443...${NC}"
-                [ -f "/root/antizapret/up.sh" ] && /root/antizapret/up.sh > /dev/null
-                sleep 2
-            fi
-
-            # Только после проверки портов запрашиваем домен
-            while true; do
-                read -p "Введите доменное имя (например, example.com): " DOMAIN
-                if validate_domain "$DOMAIN"; then
-                    break
-                fi
-            done
-            
-            while true; do
-                read -p "Введите email для Let's Encrypt: " EMAIL
-                if [[ "$EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
-                    break
-                else
-                    echo "${RED}Неверный формат email!${NC}"
-                fi
-            done
-            
-            if ! check_dns; then
-                echo "${YELLOW}Продолжение без корректной DNS записи может привести к ошибкам.${NC}"
-                read -p "Продолжить установку? (y/n): " choice
-                [[ "$choice" =~ ^[Yy]$ ]] || continue 2
-            fi
-            ;;
-        2)
-            setup_selfsigned
-            ;;
-        3)
-            echo "${YELLOW}Будет использовано HTTP соединение без шифрования${NC}"
-            ;;
-        *)
-            echo "${RED}Неверный выбор!${NC}"
-            exit 1
-            ;;
-    esac
+                ;;
+            2)
+                setup_selfsigned
+                break
+                ;;
+            3)
+                echo "${YELLOW}Будет использовано HTTP соединение без шифрования${NC}"
+                break
+                ;;
+            *)
+                echo "${RED}Неверный выбор!${NC}"
+                ;;
+        esac
+    done
 
     # Обновление пакетов
     echo "${YELLOW}Обновление списка пакетов...${NC}"
@@ -639,9 +672,7 @@ install() {
     check_error "Не удалось обновить пакеты"
     
     # Проверка и установка зависимостей
-    echo "${YELLOW}Установка системных зависимостей...${NC}"
-    apt-get install -y -qq python3 python3-pip python3.12-venv git wget openssl >/dev/null 2>&1
-    check_error "Не удалось установить зависимости"
+    check_dependencies
 
     # Создание виртуального окружения
     echo "${YELLOW}Создание виртуального окружения...${NC}"
@@ -649,30 +680,22 @@ install() {
     check_error "Не удалось создать виртуальное окружение"
 
     # Установка Python-зависимостей
-    echo "${YELLOW}Установка Python-зависимостей из requirements.txt...${NC}"
+    echo "${YELLOW}Установка Python-зависимостей...${NC}"
     "$VENV_PATH/bin/pip" install -q -r "$INSTALL_DIR/requirements.txt"
     check_error "Не удалось установить Python-зависимости"
     
-# Настройка конфигурации
-echo "${YELLOW}Настройка конфигурации...${NC}"
-
-# Проверка наличия файла .env
-if [ -f "$INSTALL_DIR/.env" ]; then
-    echo "${YELLOW}Добавляем значения в .env...${NC}"
-    
-    # Проверяем, есть ли уже строки SECRET_KEY и APP_PORT
-    grep -qxF "SECRET_KEY='$SECRET_KEY'" "$INSTALL_DIR/.env" || echo "SECRET_KEY='$SECRET_KEY'" >> "$INSTALL_DIR/.env"
-    grep -qxF "APP_PORT=$APP_PORT" "$INSTALL_DIR/.env" || echo "APP_PORT=$APP_PORT" >> "$INSTALL_DIR/.env"
-else
-    # Если файл не существует, создаем его с необходимыми значениями
-    echo "${YELLOW}.env файл не найден, создаем новый...${NC}"
-    cat > "$INSTALL_DIR/.env" <<EOL
+    # Настройка конфигурации
+    echo "${YELLOW}Настройка конфигурации...${NC}"
+    if [ -f "$INSTALL_DIR/.env" ]; then
+        grep -qxF "SECRET_KEY='$SECRET_KEY'" "$INSTALL_DIR/.env" || echo "SECRET_KEY='$SECRET_KEY'" >> "$INSTALL_DIR/.env"
+        grep -qxF "APP_PORT=$APP_PORT" "$INSTALL_DIR/.env" || echo "APP_PORT=$APP_PORT" >> "$INSTALL_DIR/.env"
+    else
+        cat > "$INSTALL_DIR/.env" <<EOL
 SECRET_KEY='$SECRET_KEY'
 APP_PORT=$APP_PORT
 EOL
-    chmod 600 "$INSTALL_DIR/.env"
-fi
-
+        chmod 600 "$INSTALL_DIR/.env"
+    fi
 
     # Инициализация базы данных
     init_db
@@ -716,9 +739,6 @@ EOL
             ;;
     esac
 
-    # Настройка фаервола
-    configure_firewall
-
     # Проверка установки AntiZapret-VPN
     echo "${YELLOW}Проверка установки AntiZapret-VPN...${NC}"
     sleep 3
@@ -750,13 +770,8 @@ EOL
     fi
 
     # Установка прав выполнения для client.sh и doall.sh
-    echo "${YELLOW}Установка прав выполнения для client.sh и doall.sh...${NC}"
-    chmod +x "$INSTALL_DIR/client.sh" "$ANTIZAPRET_INSTALL_DIR/doall.sh"
-    if [ $? -eq 0 ]; then
-        echo "${GREEN}Права выполнения успешно установлены!${NC}"
-    else
-        echo "${RED}Ошибка при установке прав выполнения!${NC}"
-    fi
+    echo "${YELLOW}Установка прав выполнения...${NC}"
+    chmod +x "$INSTALL_DIR/client.sh" "$ANTIZAPRET_INSTALL_DIR/doall.sh" 2>/dev/null || true
 
     # Проверка и установка AntiZapret-VPN
     if ! check_antizapret_installed; then
@@ -769,9 +784,6 @@ EOL
     else
         echo "${GREEN}AntiZapret-VPN уже установлен.${NC}"
     fi
-
-    # Валидация конфигурации
-    validate_config
 
     press_any_key
 }

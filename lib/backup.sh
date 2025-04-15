@@ -3,6 +3,33 @@
 source ./lib/config.sh
 source ./lib/utils.sh
 
+backup_menu() {
+    while true; do
+        clear
+        echo "${GREEN}┌────────────────────────────────────────────┐"
+        echo "│      Управление резервным копированием    │"
+        echo "├────────────────────────────────────────────┤"
+        echo "│ 1. Создать резервную копию                │"
+        echo "│ 2. Восстановить из резервной копии        │"
+        echo "│ 3. Список резервных копий                 │"
+        echo "│ 0. Назад                                  │"
+        echo "└────────────────────────────────────────────┘${NC}"
+        
+        read -p "Выберите действие: " choice
+        case $choice in
+            1) create_backup ;;
+            2) 
+                read -p "Введите путь к файлу резервной копии: " backup_file
+                restore_backup "$backup_file"
+                ;;
+            3) list_backups ;;
+            0) break ;;
+            *) echo "${RED}Неверный выбор!${NC}"; sleep 1 ;;
+        esac
+        press_any_key
+    done
+}
+
 # Создание резервной копии
 create_backup() {
     local backup_dir="/var/backups/antizapret"
@@ -170,3 +197,7 @@ list_backups() {
     
     return 0
 }
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    backup_menu 
+fi

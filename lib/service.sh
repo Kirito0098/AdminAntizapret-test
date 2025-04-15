@@ -3,6 +3,40 @@
 source ./lib/config.sh
 source ./lib/utils.sh
 
+# Функция меню управления сервисом
+service_management_menu() {
+    while true; do
+        clear
+        echo "${GREEN}┌────────────────────────────────────────────┐"
+        echo "│        Управление сервисом $SERVICE_NAME      │"
+        echo "├────────────────────────────────────────────┤"
+        echo "│ 1. Запустить сервис                       │"
+        echo "│ 2. Остановить сервис                      │"
+        echo "│ 3. Перезапустить сервис                   │"
+        echo "│ 4. Проверить статус                       │"
+        echo "│ 5. Просмотреть логи                       │"
+        echo "│ 6. Включить автозагрузку                  │"
+        echo "│ 7. Отключить автозагрузку                 │"
+        echo "│ 8. Проверить конфигурацию                 │"
+        echo "│ 0. Назад                                  │"
+        echo "└────────────────────────────────────────────┘${NC}"
+        
+        read -p "Выберите действие: " choice
+        case $choice in
+            1) start_service ;;
+            2) stop_service ;;
+            3) restart_service ;;
+            4) check_status ;;
+            5) show_logs ;;
+            6) enable_service ;;
+            7) disable_service ;;
+            8) check_service_config ;;
+            0) break ;;
+            *) echo "${RED}Неверный выбор!${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
 # Перезапуск сервиса
 restart_service() {
     log "Перезапуск сервиса $SERVICE_NAME"
@@ -168,3 +202,7 @@ check_service_config() {
     
     press_any_key
 }
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    service_management_menu
+fi

@@ -3,6 +3,32 @@
 source ./lib/config.sh
 source ./lib/utils.sh
 
+ssl_management_menu() {
+    while true; do
+        clear
+        echo "${GREEN}┌────────────────────────────────────────────┐"
+        echo "│        Управление SSL/Nginx                 │"
+        echo "├────────────────────────────────────────────┤"
+        echo "│ 1. Настроить Let's Encrypt                 │"
+        echo "│ 2. Создать самоподписанный сертификат      │"
+        echo "│ 3. Проверить конфигурацию Nginx            │"
+        echo "│ 4. Перезагрузить Nginx                     │"
+        echo "│ 0. Назад                                   │"
+        echo "└────────────────────────────────────────────┘${NC}"
+        
+        read -p "Выберите действие: " choice
+        case $choice in
+            1) setup_nginx_letsencrypt ;;
+            2) setup_selfsigned ;;
+            3) nginx -t && echo "${GREEN}Конфигурация OK${NC}" || echo "${RED}Ошибка в конфигурации${NC}" ;;
+            4) systemctl reload nginx ;;
+            0) break ;;
+            *) echo "${RED}Неверный выбор!${NC}"; sleep 1 ;;
+        esac
+        press_any_key
+    done
+}
+
 # Установка Nginx с Let's Encrypt
 setup_nginx_letsencrypt() {
     log "Настройка Nginx + Let's Encrypt для домена $DOMAIN"
@@ -170,3 +196,7 @@ change_port() {
     echo "${GREEN}Порт успешно изменен на $new_port!${NC}"
     press_any_key
 }
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    ssl_management_menu
+fi

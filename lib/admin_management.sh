@@ -3,6 +3,32 @@
 source ./lib/config.sh
 source ./lib/utils.sh
 
+admin_management_menu() {
+    while true; do
+        clear
+        echo "${GREEN}┌────────────────────────────────────────────┐"
+        echo "│     Управление администраторами           │"
+        echo "├────────────────────────────────────────────┤"
+        echo "│ 1. Добавить администратора                │"
+        echo "│ 2. Удалить администратора                 │"
+        echo "│ 3. Список администраторов                │"
+        echo "│ 4. Изменить пароль                        │"
+        echo "│ 0. Назад                                  │"
+        echo "└────────────────────────────────────────────┘${NC}"
+        
+        read -p "Выберите действие: " choice
+        case $choice in
+            1) add_admin ;;
+            2) delete_admin ;;
+            3) list_admins ;;
+            4) change_admin_password ;;
+            0) break ;;
+            *) echo "${RED}Неверный выбор!${NC}"; sleep 1 ;;
+        esac
+        press_any_key
+    done
+}
+
 # Добавление администратора
 add_admin() {
     echo "${YELLOW}Добавление нового администратора...${NC}"
@@ -157,3 +183,7 @@ change_admin_password() {
     
     press_any_key
 }
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    admin_management_menu
+fi

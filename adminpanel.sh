@@ -544,7 +544,7 @@ install() {
     echo "${YELLOW}Клонирование репозитория...${NC}"
     if [ -d "$INSTALL_DIR" ]; then
         echo "${YELLOW}Директория уже существует, обновляем...${NC}"
-        cd "$INSTALL_DIR" && git pull > /dev/null
+        cd "$INSTALL_DIR" && git pull > /dev/null 2>&1
     else
         git clone "$REPO_URL" "$INSTALL_DIR" > /dev/null
     fi

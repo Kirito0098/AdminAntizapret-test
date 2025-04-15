@@ -544,9 +544,9 @@ install() {
     echo "${YELLOW}Клонирование репозитория...${NC}"
     if [ -d "$INSTALL_DIR" ]; then
         echo "${YELLOW}Директория уже существует, обновляем...${NC}"
-        cd "$INSTALL_DIR" && git pull > /dev/null 2>&1
+        cd "$INSTALL_DIR" && git pull > /dev/null
     else
-        git clone "$REPO_URL" "$INSTALL_DIR" > /dev/null 2>&1
+        git clone "$REPO_URL" "$INSTALL_DIR" > /dev/null
     fi
     check_error "Не удалось клонировать репозиторий"
 
@@ -580,17 +580,21 @@ install() {
                             ;;
                         *)
                             echo "${RED}Установка невозможна без освобождения портов${NC}"
-                            echo "${YELLOW}Возврат к выбору способа...${NC}"
-                            sleep 2
-                            continue 2  # Возврат к выбору способа установки
+                            retry_ssl_choice=true
                             ;;
                     esac
                 fi
             fi
 
+            if [ "$retry_ssl_choice" = true ]; then
+                # Возвращаемся к выбору способа установки
+                continue_install=false
+                break
+            fi
+
             if [ "$need_restart" = true ]; then
                 echo "${YELLOW}Освобождение портов 80 и 443...${NC}"
-                [ -f "/root/antizapret/up.sh" ] && /root/antizapret/up.sh > /dev/null 2>&1
+                [ -f "/root/antizapret/up.sh" ] && /root/antizapret/up.sh > /dev/null
                 sleep 2
             fi
 

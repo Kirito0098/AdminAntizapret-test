@@ -66,7 +66,7 @@ check_port() {
 # Проверка зависимостей
 check_dependencies() {
     echo "Установка зависимостей..."
-    apt-get update -qq && apt-get install -y -qq python3 python3-pip git wget openssl python3-venv
+    apt-get update --quiet --quiet && apt-get install -y ---quiet --quiet python3 python3-pip git wget openssl python3-venv > /dev/null 
     if [ $? -ne 0 ]; then
         echo "Ошибка установки зависимостей!"
         exit 1
@@ -548,7 +548,7 @@ install() {
 
     # Обновление пакетов
     echo "${YELLOW}Обновление списка пакетов...${NC}"
-    apt-get update -qq > /dev/null 2>&1
+    apt-get update --quiet --quiet > /dev/null
     check_error "Не удалось обновить пакеты"
     
     # Проверка и установка зависимостей

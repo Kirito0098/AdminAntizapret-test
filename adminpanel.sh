@@ -142,68 +142,6 @@ check_dns() {
 # Установка Nginx с Let's Encrypt
 setup_nginx_letsencrypt() {
     log "Настройка Nginx + Let's Encrypt для домена $DOMAIN"
-    echo "${YELLOW}Проверка доступности портов 80 и 443...${NC}"
-
-    # Проверка конфигурации AntiZapret
-    local antizapret_conf="/root/antizapret/setup"
-    local need_restart=false
-
-    if [ -f "$antizapret_conf" ]; then
-        # Проверяем, используются ли порты 80/443 в AntiZapret
-        local tcp_ports=$(grep -oP 'OPENVPN_80_443_TCP=\K[yn]' "$antizapret_conf" 2>/dev/null)
-        local udp_ports=$(grep -oP 'OPENVPN_80_443_UDP=\K[yn]' "$antizapret_conf" 2>/dev/null)
-
-        if [[ "$tcp_ports" == "y" || "$udp_ports" == "y" ]]; then
-            echo "${RED}ВНИМАНИЕ: AntiZapret в данный момент использует порты 80 и 443.${NC}"
-            echo "${YELLOW}Для работы Nginx + Let's Encrypt эти порты должны быть свободны.${NC}"
-            
-            read -p "Освободить порты 80 и 443? (y/n): " choice
-            case "$choice" in
-                [Yy]*)
-                    # Меняем значения в конфигурации
-                    sed -i 's/OPENVPN_80_443_TCP=y/OPENVPN_80_443_TCP=n/' "$antizapret_conf"
-                    sed -i 's/OPENVPN_80_443_UDP=y/OPENVPN_80_443_UDP=n/' "$antizapret_conf"
-                    need_restart=true
-                    ;;
-                *)
-                    echo "${RED}Установка Nginx + Let's Encrypt невозможна без освобождения портов.${NC}"
-                    echo "${YELLOW}Возврат к выбору способа установки...${NC}"
-                    sleep 2
-                    return 1
-                    ;;
-            esac
-        fi
-    fi
-
-    # Если нужно перезапустить AntiZapret
-    if [ "$need_restart" = true ]; then
-        echo "${YELLOW}Применение изменений конфигурации AntiZapret...${NC}"
-        if [ -f "/root/antizapret/up.sh" ]; then
-            /root/antizapret/up.sh
-            echo "${GREEN}AntiZapret перезапущен, порты 80/443 освобождены.${NC}"
-        else
-            echo "${YELLOW}Файл up.sh не найден. Изменения вступят после перезапуска AntiZapret.${NC}"
-        fi
-        sleep 2
-    fi
-
-    # Только после проверки портов запрашиваем домен и email
-    while true; do
-        read -p "Введите доменное имя (например, example.com): " DOMAIN
-        if validate_domain "$DOMAIN"; then
-            break
-        fi
-    done
-
-    while true; do
-        read -p "Введите email для Let's Encrypt: " EMAIL
-        if [[ "$EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
-            break
-        else
-            echo "${RED}Неверный формат email!${NC}"
-        fi
-    done
-
     echo "${YELLOW}Установка Nginx и Let's Encrypt...${NC}"
     
     # Установка Nginx
@@ -621,6 +559,42 @@ install() {
 
     case $ssl_choice in
         1)
+            # Проверка конфигурации AntiZapret перед запросом домена
+            local antizapret_conf="/root/antizapret/setup"
+            local need_restart=false
+
+            if [ -f "$antizapret_conf" ]; then
+                local tcp_ports=$(grep -oP 'OPENVPN_80_443_TCP=\K[yn]' "$antizapret_conf" 2>/dev/null)
+                local udp_ports=$(grep -oP 'OPENVPN_80_443_UDP=\K[yn]' "$antizapret_conf" 2>/dev/null)
+
+                if [[ "$tcp_ports" == "y" || "$udp_ports" == "y" ]]; then
+                    echo "${RED}ВНИМАНИЕ: AntiZapret использует порты 80/443${NC}"
+                    echo "${YELLOW}Для Nginx + Let's Encrypt эти порты должны быть свободны${NC}"
+                    
+                    read -p "Освободить порты? (y/n): " choice
+                    case "$choice" in
+                        [Yy]*)
+                            sed -i 's/OPENVPN_80_443_TCP=y/OPENVPN_80_443_TCP=n/' "$antizapret_conf"
+                            sed -i 's/OPENVPN_80_443_UDP=y/OPENVPN_80_443_UDP=n/' "$antizapret_conf"
+                            need_restart=true
+                            ;;
+                        *)
+                            echo "${RED}Установка невозможна без освобождения портов${NC}"
+                            echo "${YELLOW}Возврат к выбору способа...${NC}"
+                            sleep 2
+                            continue 2  # Возврат к выбору способа установки
+                            ;;
+                    esac
+                fi
+            fi
+
+            if [ "$need_restart" = true ]; then
+                echo "${YELLOW}Перезапуск AntiZapret...${NC}"
+                [ -f "/root/antizapret/up.sh" ] && /root/antizapret/up.sh
+                sleep 2
+            fi
+
+            # Только после проверки портов запрашиваем домен
             while true; do
                 read -p "Введите доменное имя (например, example.com): " DOMAIN
                 if validate_domain "$DOMAIN"; then
@@ -640,7 +614,7 @@ install() {
             if ! check_dns; then
                 echo "${YELLOW}Продолжение без корректной DNS записи может привести к ошибкам.${NC}"
                 read -p "Продолжить установку? (y/n): " choice
-                [[ "$choice" =~ ^[Yy]$ ]] || exit 1
+                [[ "$choice" =~ ^[Yy]$ ]] || continue 2
             fi
             ;;
         2)

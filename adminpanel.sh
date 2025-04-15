@@ -222,7 +222,7 @@ setup_selfsigned() {
     
 # Настройка конфигурации Flask для HTTPS
 if [ -f "$INSTALL_DIR/.env" ]; then
-    echo "${YELLOW}.env файл существует, добавляем значения, если их нет...${NC}"
+    echo "${YELLOW}Добавляем значения в .env...${NC}"
     
     # Проверяем, есть ли уже строки USE_HTTPS, SSL_CERT, SSL_KEY
     grep -qxF "USE_HTTPS=true" "$INSTALL_DIR/.env" || echo "USE_HTTPS=true" >> "$INSTALL_DIR/.env"
@@ -230,7 +230,7 @@ if [ -f "$INSTALL_DIR/.env" ]; then
     grep -qxF "SSL_KEY=/etc/ssl/private/admin-antizapret.key" "$INSTALL_DIR/.env" || echo "SSL_KEY=/etc/ssl/private/admin-antizapret.key" >> "$INSTALL_DIR/.env"
 else
     # Если файл не существует, создаем его с необходимыми значениями
-    echo "${YELLOW}.env файл не найден, создаем новый...${NC}"
+    echo "${YELLOW}Создаем файл .env...${NC}"
     cat > "$INSTALL_DIR/.env" <<EOL
 USE_HTTPS=true
 SSL_CERT=/etc/ssl/certs/admin-antizapret.crt
@@ -268,26 +268,6 @@ configure_firewall() {
     else
         echo "${YELLOW}Фаервол не найден, пропускаем настройку${NC}"
     fi
-}
-
-# Проверка зависимостей
-check_dependencies() {
-    local missing=0
-    declare -A deps=(
-        ["python3"]="Python 3"
-        ["pip"]="Python pip"
-        ["git"]="Git"
-        ["openssl"]="OpenSSL"
-    )
-    
-    for cmd in "${!deps[@]}"; do
-        if ! command -v "$cmd" >/dev/null; then
-            echo "${RED}Ошибка: ${deps[$cmd]} не установлен${NC}"
-            missing=$((missing+1))
-        fi
-    done
-    
-    [ $missing -eq 0 ] && return 0 || return 1
 }
 
 # Включение режима обслуживания
@@ -648,7 +628,7 @@ echo "${YELLOW}Настройка конфигурации...${NC}"
 
 # Проверка наличия файла .env
 if [ -f "$INSTALL_DIR/.env" ]; then
-    echo "${YELLOW}.env файл существует, добавляем значения, если их нет...${NC}"
+    echo "${YELLOW}Добавляем значения в .env...${NC}"
     
     # Проверяем, есть ли уже строки SECRET_KEY и APP_PORT
     grep -qxF "SECRET_KEY='$SECRET_KEY'" "$INSTALL_DIR/.env" || echo "SECRET_KEY='$SECRET_KEY'" >> "$INSTALL_DIR/.env"

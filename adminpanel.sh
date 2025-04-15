@@ -68,7 +68,6 @@ check_dependencies() {
     local missing=0
     declare -A deps=(
         ["python3"]="Python 3"
-        ["python3-venv"]="Python 3 venv"
         ["pip"]="Python pip"
         ["git"]="Git"
         ["wget"]="Wget"

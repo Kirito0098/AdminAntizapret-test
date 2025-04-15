@@ -623,8 +623,8 @@ install() {
                 fi
 
                 if [ "$need_restart" = true ] && [ -f "/root/antizapret/up.sh" ]; then
-                    echo "${YELLOW}Перезапуск AntiZapret...${NC}"
-                    /root/antizapret/up.sh
+                    echo "${YELLOW}Освобождение портов...${NC}"
+                    /root/antizapret/up.sh > /dev/null 2>&1
                     sleep 2
                 fi
 

@@ -1,7 +1,6 @@
 #!/bin/bash
 
 # Установочный скрипт для AdminAntizapret
-# Автоматически клонирует репозиторий, настраивает права и запускает панель управления
 
 # Цвета для вывода
 RED='\033[0;31m'
@@ -31,14 +30,14 @@ fi
 # Установка необходимых пакетов
 echo -e "${YELLOW}Установка необходимых пакетов...${NC}"
 apt-get update -qq
-apt-get install -y -qq git wget curl > /dev/null
+apt-get install -y -qq git wget curl > /dev/null 2>&1
 check_error "Не удалось установить зависимости"
 
 # Клонирование репозитория
 echo -e "${YELLOW}Клонирование репозитория AdminAntizapret...${NC}"
 if [ -d "$INSTALL_DIR" ]; then
   echo -e "${YELLOW}Директория уже существует, обновляем...${NC}"
-  cd "$INSTALL_DIR" && git pull origin main
+  cd "$INSTALL_DIR" && git pull origin main > /dev/null 2>&1
 else
   git clone "$REPO_URL" "$INSTALL_DIR"
 fi
@@ -51,18 +50,6 @@ chmod -R 755 "$INSTALL_DIR"
 find "$INSTALL_DIR" -type f -exec chmod 644 {} \;
 chmod +x "$ADMINPANEL_SCRIPT" "$INSTALL_DIR/client.sh"
 
-# Установка Python зависимостей
-echo -e "${YELLOW}Установка Python зависимостей...${NC}"
-apt-get install -y -qq python3 python3-pip python3-venv > /dev/null
-check_error "Не удалось установить Python"
-
-# Создание виртуального окружения
-python3 -m venv "$INSTALL_DIR/venv"
-check_error "Не удалось создать виртуальное окружение"
-
-# Установка pip пакетов
-"$INSTALL_DIR/venv/bin/pip" install -q -r "$INSTALL_DIR/requirements.txt"
-check_error "Не удалось установить Python зависимости"
 
 # Запуск панели управления
 echo -e "${GREEN}Установка завершена! Запуск панели управления...${NC}"

@@ -524,6 +524,11 @@ install() {
     printf "└────────────────────────────────────────────┘\n"
     printf "%s\n" "${NC}"
 
+    # Проверка установки AntiZapret-VPN
+    if ! check_antizapret_installed; then
+        install_antizapret
+    fi
+    
     # Установка прав выполнения
     echo "${YELLOW}Установка прав выполнения...${NC}"
     chmod +x "$INSTALL_DIR/client.sh" "$ANTIZAPRET_INSTALL_DIR/doall.sh" 2>/dev/null || true

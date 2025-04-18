@@ -577,7 +577,7 @@ install() {
     
     # Установка прав выполнения
     echo "${YELLOW}Установка прав выполнения...${NC}" && \
-    chmod +x "$INSTALL_DIR/client.sh" "$ANTIZAPRET_INSTALL_DIR/doall.sh" 2>/dev/null || true && \
+    chmod +x "$INSTALL_DIR/client.sh" "$ANTIZAPRET_INSTALL_DIR/doall.sh" 2>/dev/null || true
     echo "${GREEN}[✓] Готово${NC}"
 
     # Обновление пакетов

@@ -10,7 +10,7 @@ NC='\033[0m' # No Color
 # Параметры установки
 INSTALL_DIR="/opt/AdminAntizapret"
 REPO_URL="https://github.com/Kirito0098/AdminAntizapret-test.git"
-MAIN_SCRIPT="$INSTALL_DIR/adminpanel.sh"
+MAIN_SCRIPT="$INSTALL_DIR/script_sh/adminpanel.sh"
 
 # Проверка root
 if [ "$(id -u)" -ne 0 ]; then

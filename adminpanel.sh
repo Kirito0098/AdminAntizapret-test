@@ -21,8 +21,6 @@ APP_PORT="$DEFAULT_PORT"
 DB_FILE="$INSTALL_DIR/instance/users.db"
 ANTIZAPRET_INSTALL_DIR="/root/antizapret"
 ANTIZAPRET_INSTALL_SCRIPT="https://raw.githubusercontent.com/GubernievS/AntiZapret-VPN/main/setup.sh"
-DOMAIN=""
-EMAIL=""
 LOG_FILE="/var/log/adminpanel.log"
 
 # Генерируем случайный секретный ключ
@@ -140,87 +138,6 @@ init_db() {
   check_error "Не удалось инициализировать базу данных"
 }
 
-# Валидация домена
-validate_domain() {
-  local domain=$1
-  if [[ ! $domain =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
-    echo "${RED}Неверный формат домена!${NC}"
-    return 1
-  fi
-  return 0
-}
-
-# Проверка DNS
-check_dns() {
-  if ! dig +short $DOMAIN | grep -q '[0-9]'; then
-    echo "${YELLOW}DNS запись для $DOMAIN не найдена или неверна!${NC}"
-    return 1
-  fi
-  return 0
-}
-
-# Установка Nginx с Let's Encrypt
-setup_nginx_letsencrypt() {
-    log "Настройка Nginx + Let's Encrypt для домена $DOMAIN"
-    echo "${YELLOW}Установка Nginx и Let's Encrypt...${NC}"
-    
-    # Установка Nginx
-    apt-get install -y -qq nginx >/dev/null 2>&1
-    check_error "Не удалось установить Nginx"
-    
-    # Установка Certbot
-    apt-get install -y -qq certbot python3-certbot-nginx >/dev/null 2>&1
-    check_error "Не удалось установить Certbot"
-    
-    # Настройка Nginx
-    cat > /etc/nginx/sites-available/admin-antizapret <<EOL
-server {
-    listen 80;
-    server_name $DOMAIN;
-    
-    location / {
-        proxy_pass http://127.0.0.1:$APP_PORT;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-    }
-}
-EOL
-    
-    ln -s /etc/nginx/sites-available/admin-antizapret /etc/nginx/sites-enabled/
-    systemctl restart nginx
-    
-    # Получение сертификата
-    certbot --nginx -d $DOMAIN --non-interactive --agree-tos -m $EMAIL
-    check_error "Не удалось получить сертификат Let's Encrypt"
-    
-    # Удаляем старый файл с SSL-параметрами, чтобы избежать дублирования
-    rm -f /etc/nginx/conf.d/ssl-params.conf
-    
-    # Настройка SSL параметров
-    cat > /etc/nginx/conf.d/ssl-params.conf <<EOL
-ssl_session_timeout 1d;
-ssl_session_cache shared:MozSSL:10m;
-ssl_session_tickets off;
-ssl_stapling on;
-ssl_stapling_verify on;
-add_header Strict-Transport-Security "max-age=63072000" always;
-add_header X-Frame-Options DENY;
-add_header X-Content-Type-Options nosniff;
-add_header X-XSS-Protection "1; mode=block";
-EOL
-    
-    # Настройка автоматического обновления
-    (crontab -l 2>/dev/null; echo "0 60 * * * /usr/bin/certbot renew --quiet") | crontab -
-    
-    # Проверяем конфигурацию и перезапускаем Nginx
-    nginx -t && systemctl restart nginx
-    
-    log "Nginx с Let's Encrypt успешно настроен"
-    echo "${GREEN}Nginx с Let's Encrypt успешно настроен!${NC}"
-}
-
 # Установка с самоподписанным сертификатом
 setup_selfsigned() {
     log "Настройка самоподписанного сертификата"
@@ -253,34 +170,6 @@ EOL
     
     log "Самоподписанный сертификат создан"
     echo "${GREEN}Самоподписанный сертификат успешно создан!${NC}"
-}
-
-# Настройка фаервола
-configure_firewall() {
-    log "Настройка фаервола для порта $APP_PORT"
-    if command -v ufw >/dev/null; then
-        echo "${YELLOW}Настройка UFW...${NC}"
-        ufw allow "$APP_PORT/tcp"
-        
-        if [ "$ssl_choice" = "1" ]; then
-            ufw allow 80/tcp
-            ufw allow 443/tcp
-        fi
-        
-        ufw reload
-    elif command -v firewall-cmd >/dev/null; then
-        echo "${YELLOW}Настройка firewalld...${NC}"
-        firewall-cmd --permanent --add-port="$APP_PORT/tcp"
-        
-        if [ "$ssl_choice" = "1" ]; then
-            firewall-cmd --permanent --add-service=http
-            firewall-cmd --permanent --add-service=https
-        fi
-        
-        firewall-cmd --reload
-    else
-        echo "${YELLOW}Фаервол не найден, пропускаем настройку${NC}"
-    fi
 }
 
 # Валидация конфигурации
@@ -337,9 +226,7 @@ create_backup() {
         /etc/systemd/system/$SERVICE_NAME.service \
         "$DB_FILE" \
         /etc/ssl/certs/admin-antizapret.crt 2>/dev/null \
-        /etc/ssl/private/admin-antizapret.key 2>/dev/null \
-        /etc/nginx/sites-*/admin-antizapret 2>/dev/null \
-        /etc/letsencrypt/live/$DOMAIN 2>/dev/null
+        /etc/ssl/private/admin-antizapret.key 2>/dev/null
     
     # Проверка целостности архива
     if ! tar -tzf "$backup_file" >/dev/null; then
@@ -367,7 +254,6 @@ restore_backup() {
     
     # Остановка сервисов
     systemctl stop $SERVICE_NAME 2>/dev/null
-    systemctl stop nginx 2>/dev/null
     
     # Восстановление файлов
     tar -xzf "$backup_file" -C /
@@ -375,7 +261,6 @@ restore_backup() {
     # Перезапуск сервисов
     systemctl daemon-reload
     systemctl start $SERVICE_NAME
-    systemctl start nginx 2>/dev/null
     
     log "Восстановление завершено"
     echo "${GREEN}Восстановление завершено успешно!${NC}"
@@ -444,21 +329,9 @@ uninstall() {
             # Создать резервную копию перед удалением
             create_backup
             
-            # Определяем способ установки для правильного удаления
-            use_nginx=false
-            use_letsencrypt=false
+            # Проверяем, используется ли самоподписанный сертификат
             use_selfsigned=false
             
-            # Проверяем, используется ли Nginx
-            if [ -f "/etc/nginx/sites-enabled/admin-antizapret" ]; then
-                use_nginx=true
-                # Проверяем, используется ли Let's Encrypt
-                if [ -d "/etc/letsencrypt/live/" ]; then
-                    use_letsencrypt=true
-                fi
-            fi
-            
-            # Проверяем, используется ли самоподписанный сертификат
             if grep -q "USE_HTTPS=true" "$INSTALL_DIR/.env" 2>/dev/null && \
                [ -f "/etc/ssl/certs/admin-antizapret.crt" ] && \
                [ -f "/etc/ssl/private/admin-antizapret.key" ]; then
@@ -471,24 +344,6 @@ uninstall() {
             systemctl disable $SERVICE_NAME
             rm -f "/etc/systemd/system/$SERVICE_NAME.service"
             systemctl daemon-reload
-            
-            # Удаление конфигурации Nginx, если использовался
-            if [ "$use_nginx" = true ]; then
-                printf "%s\n" "${YELLOW}Удаление конфигурации Nginx...${NC}"
-                rm -f /etc/nginx/sites-enabled/admin-antizapret
-                rm -f /etc/nginx/sites-available/admin-antizapret
-                systemctl reload nginx
-                
-                # Удаление Let's Encrypt сертификата, если использовался
-                if [ "$use_letsencrypt" = true ]; then
-                    printf "%s\n" "${YELLOW}Удаление Let's Encrypt сертификата...${NC}"
-                    certbot delete --non-interactive --cert-name $DOMAIN 2>/dev/null || \
-                        echo "${YELLOW}Не удалось удалить сертификат Let's Encrypt, возможно он уже удален${NC}"
-                    
-                    # Удаление задания cron для обновления сертификатов
-                    crontab -l | grep -v 'certbot renew' | crontab -
-                fi
-            fi
             
             # Удаление самоподписанного сертификата, если использовался
             if [ "$use_selfsigned" = true ]; then
@@ -504,7 +359,7 @@ uninstall() {
             
             # Удаление зависимостей, если они больше не нужны
             printf "%s\n" "${YELLOW}Очистка зависимостей...${NC}"
-            apt-get autoremove -y --purge python3-venv python3-pip nginx nginx-common >/dev/null 2>&1
+            apt-get autoremove -y --purge python3-venv python3-pip >/dev/null 2>&1
         
             # Удаление файлов приложения
             printf "%s\n" "${YELLOW}Удаление логов...${NC}"
@@ -567,76 +422,12 @@ install() {
     # Выбор способа установки
     while true; do
         echo "${YELLOW}Выберите способ установки:${NC}"
-        echo "1) Nginx + Let's Encrypt (рекомендуется)"
-        echo "2) Самоподписанный сертификат"
-        echo "3) Только HTTP (без HTTPS)"
-        read -p "Ваш выбор [1-3]: " ssl_choice
+        echo "1) Самоподписанный сертификат (HTTPS)"
+        echo "2) Только HTTP (без HTTPS)"
+        read -p "Ваш выбор [1-2]: " ssl_choice
 
         case $ssl_choice in
             1)
-                # Проверка конфигурации AntiZapret перед запросом домена
-                antizapret_conf="/root/antizapret/setup"
-                need_restart=false
-                ports_ok=true
-
-                if [ -f "$antizapret_conf" ]; then
-                    tcp_ports=$(grep -oP 'OPENVPN_80_443_TCP=\K[yn]' "$antizapret_conf" 2>/dev/null)
-                    udp_ports=$(grep -oP 'OPENVPN_80_443_UDP=\K[yn]' "$antizapret_conf" 2>/dev/null)
-
-                    if [[ "$tcp_ports" == "y" || "$udp_ports" == "y" ]]; then
-                        echo "${RED}ВНИМАНИЕ: AntiZapret использует порты 80/443${NC}"
-                        echo "${YELLOW}Для Nginx + Let's Encrypt эти порты должны быть свободны${NC}"
-                        
-                        read -p "Освободить порты? (y/n): " choice
-                        case "$choice" in
-                            [Yy]*)
-                                sed -i 's/OPENVPN_80_443_TCP=y/OPENVPN_80_443_TCP=n/' "$antizapret_conf"
-                                sed -i 's/OPENVPN_80_443_UDP=y/OPENVPN_80_443_UDP=n/' "$antizapret_conf"
-                                need_restart=true
-                                ;;
-                            *)
-                                echo "${RED}Установка невозможна без освобождения портов${NC}"
-                                ports_ok=false
-                                ;;
-                        esac
-                    fi
-                fi
-
-                if [ "$ports_ok" = false ]; then
-                    continue
-                fi
-
-                if [ "$need_restart" = true ] && [ -f "/root/antizapret/up.sh" ]; then
-                    echo "${YELLOW}Освобождение портов...${NC}"
-                    /root/antizapret/up.sh > /dev/null 2>&1
-                    sleep 2
-                fi
-
-                # Запрос домена и email
-                while true; do
-                    read -p "Введите доменное имя (например, example.com): " DOMAIN
-                    if validate_domain "$DOMAIN"; then
-                        break
-                    fi
-                done
-                
-                while true; do
-                    read -p "Введите email для Let's Encrypt: " EMAIL
-                    if [[ "$EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
-                        break
-                    else
-                        echo "${RED}Неверный формат email!${NC}"
-                    fi
-                done
-                
-                if ! check_dns; then
-                    echo "${YELLOW}Продолжение без корректной DNS записи может привести к ошибкам.${NC}"
-                    read -p "Продолжить установку? (y/n): " choice
-                    [[ "$choice" =~ ^[Yy]$ ]] || continue
-                fi
-                break
-                ;;
-            2)
                 # Для самоподписанного сертификата запрашиваем порт
                 read -p "Введите порт для сервиса [$DEFAULT_PORT]: " APP_PORT
                 APP_PORT=${APP_PORT:-$DEFAULT_PORT}
@@ -650,7 +441,7 @@ install() {
                 setup_selfsigned
                 break
                 ;;
-            3)
+            2)
                 # Для HTTP запрашиваем порт
                 read -p "Введите порт для сервиса [$DEFAULT_PORT]: " APP_PORT
                 APP_PORT=${APP_PORT:-$DEFAULT_PORT}
@@ -715,12 +506,9 @@ EOL
     # Настройка выбранного способа HTTPS
     case $ssl_choice in
         1)
-            setup_nginx_letsencrypt
-            ;;
-        2)
             systemctl restart "$SERVICE_NAME"
             ;;
-        3)
+        2)
             echo "${YELLOW}HTTP режим активирован${NC}"
             ;;
     esac
@@ -733,12 +521,9 @@ EOL
         echo "├────────────────────────────────────────────┤"
         case $ssl_choice in
             1)
-                echo "│ Адрес: https://$DOMAIN"
-                ;;
-            2)
                 echo "│ Адрес: https://$(hostname -I | awk '{print $1}'):$APP_PORT"
                 ;;
-            3)
+            2)
                 echo "│ Адрес: http://$(hostname -I | awk '{print $1}'):$APP_PORT"
                 ;;
         esac

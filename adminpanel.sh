@@ -65,10 +65,7 @@ check_port() {
 check_dependencies() {
     echo "${YELLOW}Установка зависимостей...${NC}" 
     apt-get update --quiet --quiet && apt-get install -y --quiet --quiet python3 python3-pip git wget openssl python3-venv > /dev/null 
-    if [ $? -ne 0 ]; then
-        echo "Ошибка установки зависимостей!"
-        exit 1
-    fi
+    check_error "Не удалось установить зависимости"
     echo "${GREEN}Зависимости установлены.${NC}"
 }
 
@@ -98,11 +95,7 @@ press_any_key() {
 
 # Проверка установки AntiZapret-VPN
 check_antizapret_installed() {
-  if [ -d "$ANTIZAPRET_INSTALL_DIR" ]; then
-    return 0
-  else
-    return 1
-  fi
+  [ -d "$ANTIZAPRET_INSTALL_DIR" ]
 }
 
 # Установка AntiZapret-VPN
@@ -110,15 +103,13 @@ install_antizapret() {
     log "Попытка установки AntiZapret-VPN"
     echo "${YELLOW}Установка AntiZapret-VPN (обязательный компонент)...${NC}"
 
-    # Запуск установочного скрипта с проверкой ошибок
     if ! bash <(wget --no-hsts -qO- "$ANTIZAPRET_INSTALL_SCRIPT"); then
         log "Ошибка: сбой установки AntiZapret-VPN"
         echo "${RED}Не удалось установить AntiZapret-VPN!${NC}"
         echo "${YELLOW}Админ-панель требует AntiZapret-VPN для работы. Установка прервана.${NC}"
-        exit 1  # Жёсткое завершение скрипта
+        exit 1
     fi
 
-    # Проверка, что установка прошла успешно
     if ! check_antizapret_installed; then
         log "Ошибка: AntiZapret-VPN не обнаружен после установки"
         echo "${RED}AntiZapret-VPN не установлен, хотя скрипт завершился без ошибок!${NC}"
@@ -143,33 +134,163 @@ setup_selfsigned() {
     log "Настройка самоподписанного сертификата"
     echo "${YELLOW}Настройка самоподписанного сертификата...${NC}"
     
-    # Создание сертификата
     mkdir -p /etc/ssl/private
     openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
         -keyout /etc/ssl/private/admin-antizapret.key \
         -out /etc/ssl/certs/admin-antizapret.crt \
         -subj "/CN=$(hostname)" >/dev/null 2>&1
     
-    # Настройка конфигурации Flask для HTTPS
-    if [ -f "$INSTALL_DIR/.env" ]; then
-        echo "${YELLOW}Добавляем значения в .env...${NC}"
-
-        # Проверяем, есть ли уже строки USE_HTTPS, SSL_CERT, SSL_KEY
-        grep -qxF "USE_HTTPS=true" "$INSTALL_DIR/.env" || echo "USE_HTTPS=true" >> "$INSTALL_DIR/.env"
-        grep -qxF "SSL_CERT=/etc/ssl/certs/admin-antizapret.crt" "$INSTALL_DIR/.env" || echo "SSL_CERT=/etc/ssl/certs/admin-antizapret.crt" >> "$INSTALL_DIR/.env"
-        grep -qxF "SSL_KEY=/etc/ssl/private/admin-antizapret.key" "$INSTALL_DIR/.env" || echo "SSL_KEY=/etc/ssl/private/admin-antizapret.key" >> "$INSTALL_DIR/.env"
-    else
-    # Если файл не существует, создаем его с необходимыми значениями
-    echo "${YELLOW}Создаем файл .env...${NC}"
-        cat > "$INSTALL_DIR/.env" <<EOL
+    cat >> "$INSTALL_DIR/.env" <<EOL
 USE_HTTPS=true
 SSL_CERT=/etc/ssl/certs/admin-antizapret.crt
 SSL_KEY=/etc/ssl/private/admin-antizapret.key
 EOL
-    fi
     
     log "Самоподписанный сертификат создан"
     echo "${GREEN}Самоподписанный сертификат успешно создан!${NC}"
+}
+
+setup_letsencrypt() {
+    log "Настройка Let's Encrypt"
+    echo "${YELLOW}Настройка Let's Encrypt...${NC}"
+    
+    while true; do
+        read -p "Введите доменное имя (например, example.com): " DOMAIN
+        if [[ $DOMAIN =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
+            break
+        else
+            echo "${RED}Неверный формат домена!${NC}"
+        fi
+    done
+    
+    while true; do
+        read -p "Введите email для Let's Encrypt: " EMAIL
+        if [[ "$EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
+            break
+        else
+            echo "${RED}Неверный формат email!${NC}"
+        fi
+    done
+
+    if ! dig +short $DOMAIN | grep -q '[0-9]'; then
+        echo "${YELLOW}DNS запись для $DOMAIN не найдена или неверна!${NC}"
+        read -p "Продолжить установку? (y/n): " choice
+        [[ "$choice" =~ ^[Yy]$ ]] || return 1
+    fi
+
+    echo "${YELLOW}Установка Certbot...${NC}"
+    apt-get install -y -qq certbot >/dev/null 2>&1
+    check_error "Не удалось установить Certbot"
+
+    echo "${YELLOW}Получение сертификата Let's Encrypt...${NC}"
+    certbot certonly --standalone --non-interactive --agree-tos -m $EMAIL -d $DOMAIN
+    check_error "Не удалось получить сертификат Let's Encrypt"
+
+    (crontab -l 2>/dev/null; echo "0 60 * * * /usr/bin/certbot renew --quiet --pre-hook 'systemctl stop $SERVICE_NAME' --post-hook 'systemctl start $SERVICE_NAME'") | crontab -
+
+    cat >> "$INSTALL_DIR/.env" <<EOL
+USE_HTTPS=true
+SSL_CERT=/etc/letsencrypt/live/$DOMAIN/fullchain.pem
+SSL_KEY=/etc/letsencrypt/live/$DOMAIN/privkey.pem
+DOMAIN=$DOMAIN
+EOL
+
+    echo "${GREEN}Let's Encrypt успешно настроен для домена $DOMAIN!${NC}"
+}
+
+setup_custom_certs() {
+    log "Настройка пользовательских сертификатов"
+    echo "${YELLOW}Настройка пользовательских сертификатов...${NC}"
+    
+    while true; do
+        read -p "Введите доменное имя (например, example.com): " DOMAIN
+        if [[ $DOMAIN =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
+            break
+        else
+            echo "${RED}Неверный формат домена!${NC}"
+        fi
+    done
+
+    read -p "Введите полный путь к файлу сертификата (.crt или .pem): " CERT_PATH
+    read -p "Введите полный путь к файлу приватного ключа (.key): " KEY_PATH
+
+    if [ ! -f "$CERT_PATH" ] || [ ! -f "$KEY_PATH" ]; then
+        echo "${RED}Файлы сертификатов не найдены!${NC}"
+        return 1
+    fi
+
+    cat >> "$INSTALL_DIR/.env" <<EOL
+USE_HTTPS=true
+SSL_CERT=$CERT_PATH
+SSL_KEY=$KEY_PATH
+DOMAIN=$DOMAIN
+EOL
+
+    echo "${GREEN}Собственные сертификаты успешно настроены для домена $DOMAIN!${NC}"
+}
+
+configure_http() {
+    log "Настройка HTTP соединения"
+    echo "${YELLOW}Настройка HTTP соединения...${NC}"
+    
+    cat > "$INSTALL_DIR/.env" <<EOL
+SECRET_KEY='$SECRET_KEY'
+APP_PORT=$APP_PORT
+USE_HTTPS=false
+EOL
+    
+    echo "${GREEN}HTTP соединение настроено на порту $APP_PORT!${NC}"
+}
+
+validate_port() {
+    while check_port $APP_PORT; do
+        echo "${RED}Порт $APP_PORT уже занят!${NC}"
+        read -p "Введите другой порт: " APP_PORT
+    done
+}
+
+choose_installation_type() {
+    while true; do
+        echo "${YELLOW}Выберите способ установки:${NC}"
+        echo "1) HTTPS (Защищенное соединение)"
+        echo "2) HTTP (Не защищенное соединение)"
+        read -p "Ваш выбор [1-2]: " ssl_main_choice
+
+        read -p "Введите порт для сервиса [$DEFAULT_PORT]: " APP_PORT
+        APP_PORT=${APP_PORT:-$DEFAULT_PORT}
+        validate_port
+
+        case $ssl_main_choice in
+            1)
+                echo "${YELLOW}Выберите тип HTTPS соединения:${NC}"
+                echo "  1) Использовать собственный домен и сертификаты Let's Encrypt"
+                echo "  2) Использовать собственный домен и собственные сертификаты"
+                echo "  3) Самоподписанный сертификат"
+                read -p "Ваш выбор [1-3]: " ssl_sub_choice
+
+                # Базовые настройки для HTTPS
+                cat > "$INSTALL_DIR/.env" <<EOL
+SECRET_KEY='$SECRET_KEY'
+APP_PORT=$APP_PORT
+EOL
+
+                case $ssl_sub_choice in
+                    1) setup_letsencrypt ;;
+                    2) setup_custom_certs ;;
+                    3) setup_selfsigned ;;
+                    *) echo "${RED}Неверный выбор!${NC}"; continue ;;
+                esac
+                return 0
+                ;;
+            2)
+                configure_http
+                return 0
+                ;;
+            *)
+                echo "${RED}Неверный выбор!${NC}"
+                ;;
+        esac
+    done
 }
 
 # Валидация конфигурации
@@ -178,25 +299,21 @@ validate_config() {
     
     echo "${YELLOW}Проверка конфигурации...${NC}"
     
-    # Проверка файла .env
     if [ ! -f "$INSTALL_DIR/.env" ]; then
         echo "${RED}Ошибка: .env файл не найден${NC}"
         errors=$((errors+1))
     fi
     
-    # Проверка секретного ключа
     if ! grep -q "SECRET_KEY=" "$INSTALL_DIR/.env"; then
         echo "${RED}Ошибка: SECRET_KEY не установлен${NC}"
         errors=$((errors+1))
     fi
     
-    # Проверка базы данных
     if [ ! -f "$DB_FILE" ]; then
         echo "${RED}Ошибка: База данных не найдена${NC}"
         errors=$((errors+1))
     fi
     
-    # Проверка сервиса systemd
     if [ ! -f "/etc/systemd/system/$SERVICE_NAME.service" ]; then
         echo "${RED}Ошибка: Сервис systemd не найден${NC}"
         errors=$((errors+1))
@@ -226,9 +343,9 @@ create_backup() {
         /etc/systemd/system/$SERVICE_NAME.service \
         "$DB_FILE" \
         /etc/ssl/certs/admin-antizapret.crt 2>/dev/null \
-        /etc/ssl/private/admin-antizapret.key 2>/dev/null
+        /etc/ssl/private/admin-antizapret.key 2>/dev/null \
+        /etc/letsencrypt/live/$DOMAIN 2>/dev/null
     
-    # Проверка целостности архива
     if ! tar -tzf "$backup_file" >/dev/null; then
         echo "${RED}Ошибка: резервная копия повреждена!${NC}"
         rm -f "$backup_file"
@@ -252,13 +369,8 @@ restore_backup() {
     log "Восстановление из резервной копии $backup_file"
     echo "${YELLOW}Восстановление из резервной копии...${NC}"
     
-    # Остановка сервисов
     systemctl stop $SERVICE_NAME 2>/dev/null
-    
-    # Восстановление файлов
     tar -xzf "$backup_file" -C /
-    
-    # Перезапуск сервисов
     systemctl daemon-reload
     systemctl start $SERVICE_NAME
     
@@ -272,10 +384,8 @@ auto_update() {
     echo "${YELLOW}Проверка обновлений...${NC}"
     cd "$INSTALL_DIR" || return 1
     
-    # Fetch updates
     git fetch origin main
     
-    # Check if update needed
     if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
         echo "${GREEN}Найдены обновления. Установка...${NC}"
         git pull origin main
@@ -326,45 +436,46 @@ uninstall() {
     
     case "$answer" in
         [Yy]*)
-            # Создать резервную копию перед удалением
             create_backup
             
-            # Проверяем, используется ли самоподписанный сертификат
             use_selfsigned=false
+            use_letsencrypt=false
             
-            if grep -q "USE_HTTPS=true" "$INSTALL_DIR/.env" 2>/dev/null && \
-               [ -f "/etc/ssl/certs/admin-antizapret.crt" ] && \
-               [ -f "/etc/ssl/private/admin-antizapret.key" ]; then
-                use_selfsigned=true
+            if grep -q "USE_HTTPS=true" "$INSTALL_DIR/.env" 2>/dev/null; then
+                if [ -f "/etc/ssl/certs/admin-antizapret.crt" ] && \
+                   [ -f "/etc/ssl/private/admin-antizapret.key" ]; then
+                    use_selfsigned=true
+                elif [ -d "/etc/letsencrypt/live/" ]; then
+                    use_letsencrypt=true
+                fi
             fi
             
-            # Остановка и удаление сервиса
             printf "%s\n" "${YELLOW}Остановка сервиса...${NC}"
             systemctl stop $SERVICE_NAME
             systemctl disable $SERVICE_NAME
             rm -f "/etc/systemd/system/$SERVICE_NAME.service"
             systemctl daemon-reload
             
-            # Удаление самоподписанного сертификата, если использовался
             if [ "$use_selfsigned" = true ]; then
                 printf "%s\n" "${YELLOW}Удаление самоподписанного сертификата...${NC}"
                 rm -f /etc/ssl/certs/admin-antizapret.crt
                 rm -f /etc/ssl/private/admin-antizapret.key
             fi
             
-            # Удаление файлов приложения
+            if [ "$use_letsencrypt" = true ]; then
+                printf "%s\n" "${YELLOW}Удаление Let's Encrypt сертификата...${NC}"
+                certbot delete --non-interactive --cert-name $DOMAIN 2>/dev/null || \
+                    echo "${YELLOW}Не удалось удалить сертификат Let's Encrypt${NC}"
+                crontab -l | grep -v 'certbot renew' | crontab -
+            fi
+            
             printf "%s\n" "${YELLOW}Удаление файлов...${NC}"
             rm -rf "$INSTALL_DIR"
-            rm -f /root/adminpanel/adminpanel.sh
-            
-            # Удаление зависимостей, если они больше не нужны
-            printf "%s\n" "${YELLOW}Очистка зависимостей...${NC}"
-            apt-get autoremove -y --purge python3-venv python3-pip >/dev/null 2>&1
-        
-            # Удаление файлов приложения
-            printf "%s\n" "${YELLOW}Удаление логов...${NC}"
             rm -f "$LOG_FILE"
-
+            
+            printf "%s\n" "${YELLOW}Очистка зависимостей...${NC}"
+            apt-get autoremove -y --purge python3-venv python3-pip certbot >/dev/null 2>&1
+        
             printf "%s\n" "${GREEN}Удаление завершено успешно!${NC}"
             printf "Резервная копия сохранена в /var/backups/antizapret\n"
             press_any_key
@@ -376,169 +487,6 @@ uninstall() {
             return
             ;;
     esac
-}
-
-# Установка AdminAntizapret
-install() {
-    clear
-    printf "%s\n" "${GREEN}"
-    printf "┌────────────────────────────────────────────┐\n"
-    printf "│          Установка AdminAntizapret         │\n"
-    printf "└────────────────────────────────────────────┘\n"
-    printf "%s\n" "${NC}"
-
-    # Клонирование репозитория
-    echo "${YELLOW}Клонирование репозитория...${NC}"
-    if [ -d "$INSTALL_DIR" ]; then
-        echo "${YELLOW}Директория уже существует, обновляем...${NC}"
-        cd "$INSTALL_DIR" && git pull > /dev/null 2>&1
-    else
-        git clone "$REPO_URL" "$INSTALL_DIR" > /dev/null 2>&1
-    fi
-    check_error "Не удалось клонировать репозиторий"
-
-    # Установка прав выполнения для client.sh и doall.sh
-    echo "${YELLOW}Установка прав выполнения...${NC}"
-    chmod +x "$INSTALL_DIR/client.sh" "$ANTIZAPRET_INSTALL_DIR/doall.sh" 2>/dev/null || true
-
-    # Обновление пакетов
-    echo "${YELLOW}Обновление списка пакетов...${NC}"
-    apt-get update --quiet --quiet > /dev/null
-    check_error "Не удалось обновить пакеты"
-    
-    # Проверка и установка зависимостей
-    check_dependencies
-
-    # Создание виртуального окружения
-    echo "${YELLOW}Создание виртуального окружения...${NC}"
-    python3 -m venv "$VENV_PATH"
-    check_error "Не удалось создать виртуальное окружение"
-
-    # Установка Python-зависимостей
-    echo "${YELLOW}Установка Python-зависимостей...${NC}"
-    "$VENV_PATH/bin/pip" install -q -r "$INSTALL_DIR/requirements.txt"
-    check_error "Не удалось установить Python-зависимости"
-
-    # Выбор способа установки
-    while true; do
-        echo "${YELLOW}Выберите способ установки:${NC}"
-        echo "1) Самоподписанный сертификат (HTTPS)"
-        echo "2) Только HTTP (без HTTPS)"
-        read -p "Ваш выбор [1-2]: " ssl_choice
-
-        case $ssl_choice in
-            1)
-                # Для самоподписанного сертификата запрашиваем порт
-                read -p "Введите порт для сервиса [$DEFAULT_PORT]: " APP_PORT
-                APP_PORT=${APP_PORT:-$DEFAULT_PORT}
-                
-                # Проверка занятости порта
-                while check_port $APP_PORT; do
-                    echo "${RED}Порт $APP_PORT уже занят!${NC}"
-                    read -p "Введите другой порт: " APP_PORT
-                done
-                
-                setup_selfsigned
-                break
-                ;;
-            2)
-                # Для HTTP запрашиваем порт
-                read -p "Введите порт для сервиса [$DEFAULT_PORT]: " APP_PORT
-                APP_PORT=${APP_PORT:-$DEFAULT_PORT}
-                
-                # Проверка занятости порта
-                while check_port $APP_PORT; do
-                    echo "${RED}Порт $APP_PORT уже занят!${NC}"
-                    read -p "Введите другой порт: " APP_PORT
-                done
-                
-                echo "${YELLOW}Будет использовано HTTP соединение без шифрования${NC}"
-                break
-                ;;
-            *)
-                echo "${RED}Неверный выбор!${NC}"
-                ;;
-        esac
-    done
-
-    # Настройка конфигурации
-    echo "${YELLOW}Настройка конфигурации...${NC}"
-    if [ -f "$INSTALL_DIR/.env" ]; then
-        grep -qxF "SECRET_KEY='$SECRET_KEY'" "$INSTALL_DIR/.env" || echo "SECRET_KEY='$SECRET_KEY'" >> "$INSTALL_DIR/.env"
-        grep -qxF "APP_PORT=$APP_PORT" "$INSTALL_DIR/.env" || echo "APP_PORT=$APP_PORT" >> "$INSTALL_DIR/.env"
-    else
-        cat > "$INSTALL_DIR/.env" <<EOL
-SECRET_KEY='$SECRET_KEY'
-APP_PORT=$APP_PORT
-EOL
-        chmod 600 "$INSTALL_DIR/.env"
-    fi
-
-    # Инициализация базы данных
-    init_db
-
-    # Создание systemd сервиса
-    echo "${YELLOW}Создание systemd сервиса...${NC}"
-    cat > "/etc/systemd/system/$SERVICE_NAME.service" <<EOL
-[Unit]
-Description=AdminAntizapret VPN Management
-After=network.target
-
-[Service]
-User=root
-Group=root
-WorkingDirectory=$INSTALL_DIR
-EnvironmentFile=$INSTALL_DIR/.env
-ExecStart=$VENV_PATH/bin/python $INSTALL_DIR/app.py
-Restart=always
-Environment="PYTHONUNBUFFERED=1"
-
-[Install]
-WantedBy=multi-user.target
-EOL
-
-    # Включение и запуск сервиса
-    systemctl daemon-reload
-    systemctl enable "$SERVICE_NAME"
-    systemctl start "$SERVICE_NAME"
-    check_error "Не удалось запустить сервис"
-
-    # Настройка выбранного способа HTTPS
-    case $ssl_choice in
-        1)
-            systemctl restart "$SERVICE_NAME"
-            ;;
-        2)
-            echo "${YELLOW}HTTP режим активирован${NC}"
-            ;;
-    esac
-
-    # Проверка установки
-    if systemctl is-active --quiet "$SERVICE_NAME"; then
-        echo "${GREEN}"
-        echo "┌────────────────────────────────────────────┐"
-        echo "│   Установка успешно завершена!             │"
-        echo "├────────────────────────────────────────────┤"
-        case $ssl_choice in
-            1)
-                echo "│ Адрес: https://$(hostname -I | awk '{print $1}'):$APP_PORT"
-                ;;
-            2)
-                echo "│ Адрес: http://$(hostname -I | awk '{print $1}'):$APP_PORT"
-                ;;
-        esac
-        echo "│"
-        echo "│ Для входа используйте учетные данные,"
-        echo "│ созданные при инициализации базы данных"
-        echo "└────────────────────────────────────────────┘"
-        echo "${NC}"
-    else
-        echo "${RED}Ошибка при запуске сервиса!${NC}"
-        journalctl -u "$SERVICE_NAME" -n 10 --no-pager
-        exit 1
-    fi
-
-    press_any_key
 }
 
 # Добавление администратора
@@ -636,37 +584,143 @@ main_menu() {
         printf "│ 8. Восстановить из резервной копии         │\n"
         printf "│ 9. Удалить AdminAntizapret                 │\n"
         printf "│ 10. Проверить и установить права           │\n"
-        printf "│ 11. Изменить порт сервиса (Для http)       │\n"
+        printf "│ 11. Изменить порт сервиса                  │\n"
         printf "│ 12. Мониторинг системы                     │\n"
         printf "│ 13. Проверить конфигурацию                 │\n"
         printf "│ 0. Выход                                   │\n"
         printf "└────────────────────────────────────────────┘\n"
         printf "%s\n" "${NC}"
         
-        printf "Выберите действие [0-13]: "
-        read choice
+        read -p "Выберите действие [0-13]: " choice
         case $choice in
-            1) add_admin;;
-            2) delete_admin;;
-            3) restart_service;;
-            4) check_status;;
-            5) show_logs;;
-            6) check_updates;;
-            7) create_backup;;
+            1) add_admin ;;
+            2) delete_admin ;;
+            3) restart_service ;;
+            4) check_status ;;
+            5) show_logs ;;
+            6) check_updates ;;
+            7) create_backup ;;
             8) 
                 read -p "Введите путь к файлу резервной копии: " backup_file
                 restore_backup "$backup_file"
                 press_any_key
                 ;;
-            9) uninstall;;
-            10) check_and_set_permissions;;
-            11) change_port;;
-            12) show_monitor;;
-            13) validate_config; press_any_key;;
-            0) exit 0;;
-            *) printf "%s\n" "${RED}Неверный выбор!${NC}"; sleep 1;;
+            9) uninstall ;;
+            10) check_and_set_permissions ;;
+            11) change_port ;;
+            12) show_monitor ;;
+            13) validate_config; press_any_key ;;
+            0) exit 0 ;;
+            *) printf "%s\n" "${RED}Неверный выбор!${NC}"; sleep 1 ;;
         esac
     done
+}
+
+# Установка AdminAntizapret
+install() {
+    clear
+    printf "%s\n" "${GREEN}"
+    printf "┌────────────────────────────────────────────┐\n"
+    printf "│          Установка AdminAntizapret         │\n"
+    printf "└────────────────────────────────────────────┘\n"
+    printf "%s\n" "${NC}"
+
+    # Клонирование репозитория
+    echo "${YELLOW}Клонирование репозитория...${NC}"
+    if [ -d "$INSTALL_DIR" ]; then
+        echo "${YELLOW}Директория уже существует, обновляем...${NC}"
+        cd "$INSTALL_DIR" && git pull > /dev/null 2>&1
+    else
+        git clone "$REPO_URL" "$INSTALL_DIR" > /dev/null 2>&1
+    fi
+    check_error "Не удалось клонировать репозиторий"
+
+    # Установка прав выполнения
+    echo "${YELLOW}Установка прав выполнения...${NC}"
+    chmod +x "$INSTALL_DIR/client.sh" "$ANTIZAPRET_INSTALL_DIR/doall.sh" 2>/dev/null || true
+
+    # Обновление пакетов
+    echo "${YELLOW}Обновление списка пакетов...${NC}"
+    apt-get update --quiet --quiet > /dev/null
+    check_error "Не удалось обновить пакеты"
+    
+    # Проверка и установка зависимостей
+    check_dependencies
+
+    # Создание виртуального окружения
+    echo "${YELLOW}Создание виртуального окружения...${NC}"
+    python3 -m venv "$VENV_PATH"
+    check_error "Не удалось создать виртуальное окружение"
+
+    # Установка Python-зависимостей
+    echo "${YELLOW}Установка Python-зависимостей...${NC}"
+    "$VENV_PATH/bin/pip" install -q -r "$INSTALL_DIR/requirements.txt"
+    check_error "Не удалось установить Python-зависимости"
+
+    # Выбор способа установки
+    choose_installation_type || exit 1
+
+    # Инициализация базы данных
+    init_db
+
+    # Создание systemd сервиса
+    echo "${YELLOW}Создание systemd сервиса...${NC}"
+    cat > "/etc/systemd/system/$SERVICE_NAME.service" <<EOL
+[Unit]
+Description=AdminAntizapret VPN Management
+After=network.target
+
+[Service]
+User=root
+Group=root
+WorkingDirectory=$INSTALL_DIR
+EnvironmentFile=$INSTALL_DIR/.env
+ExecStart=$VENV_PATH/bin/python $INSTALL_DIR/app.py
+Restart=always
+Environment="PYTHONUNBUFFERED=1"
+
+[Install]
+WantedBy=multi-user.target
+EOL
+
+    # Включение и запуск сервиса
+    systemctl daemon-reload
+    systemctl enable "$SERVICE_NAME"
+    systemctl start "$SERVICE_NAME"
+    check_error "Не удалось запустить сервис"
+
+    # Проверка установки
+    if systemctl is-active --quiet "$SERVICE_NAME"; then
+        echo "${GREEN}"
+        echo "┌────────────────────────────────────────────┐"
+        echo "│   Установка успешно завершена!             │"
+        echo "├────────────────────────────────────────────┤"
+        
+        if grep -q "USE_HTTPS=true" "$INSTALL_DIR/.env"; then
+            if [ -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ]; then
+                echo "│ Адрес: https://$DOMAIN:$APP_PORT"
+            elif [ -f "$INSTALL_DIR/.env" ] && grep -q "DOMAIN=" "$INSTALL_DIR/.env"; then
+                DOMAIN=$(grep "DOMAIN=" "$INSTALL_DIR/.env" | cut -d'=' -f2)
+                echo "│ Адрес: https://$DOMAIN:$APP_PORT"
+            else
+                echo "│ Адрес: https://$(hostname -I | awk '{print $1}'):$APP_PORT"
+            fi
+        else
+            echo "│ Адрес: http://$(hostname -I | awk '{print $1}'):$APP_PORT"
+        fi
+        
+        echo "│"
+        echo "│ Для входа используйте учетные данные,"
+        echo "│ созданные при инициализации базы данных"
+        echo "└────────────────────────────────────────────┘"
+        echo "${NC}"
+    else
+        echo "${RED}Ошибка при запуске сервиса!${NC}"
+        journalctl -u "$SERVICE_NAME" -n 10 --no-pager
+        exit 1
+    fi
+
+    press_any_key
 }
 
 # Главная функция
@@ -674,7 +728,6 @@ main() {
     check_root
     init_logging
     
-    # Обработка аргументов командной строки
     case "$1" in
         "--install")
             install
@@ -698,8 +751,8 @@ main() {
                 printf "Хотите установить? (y/n) "
                 read -r answer
                 case $answer in
-                    [Yy]*) install; main_menu;;
-                    *) exit 0;;
+                    [Yy]*) install; main_menu ;;
+                    *) exit 0 ;;
                 esac
             else
                 main_menu

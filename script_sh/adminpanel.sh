@@ -294,6 +294,8 @@ uninstall() {
     printf "Вы уверены, что хотите удалить AdminAntizapret? (y/n) "
     read answer
     
+    answer=$(echo "$answer" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+
     case "$answer" in
         [Yy]*)
             create_backup
@@ -661,6 +663,7 @@ main() {
                 printf "%s\n" "${YELLOW}AdminAntizapret не установлен.${NC}"
                 printf "Хотите установить? (y/n) "
                 read -r answer
+                    answer=$(echo "$answer" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
                 case $answer in
                     [Yy]*) install; main_menu ;;
                     *) exit 0 ;;

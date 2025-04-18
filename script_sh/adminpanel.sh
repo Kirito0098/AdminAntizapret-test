@@ -22,6 +22,7 @@ ANTIZAPRET_INSTALL_DIR="/root/antizapret"
 ANTIZAPRET_INSTALL_SCRIPT="https://raw.githubusercontent.com/GubernievS/AntiZapret-VPN/main/setup.sh"
 LOG_FILE="/var/log/adminpanel.log"
 INCLUDE_DIR="$INSTALL_DIR/script_sh"
+ADMIN_PANEL_DIR="/root/AdminPanel"
 
 modules=(
     "ssl_setup"
@@ -305,6 +306,7 @@ EOL
         echo "│ созданные при инициализации базы данных"
         echo "└────────────────────────────────────────────┘"
         echo "${NC}"
+        copy_to_adminpanel
     else
         echo "${RED}Ошибка при запуске сервиса!${NC}"
         journalctl -u "$SERVICE_NAME" -n 10 --no-pager

@@ -114,3 +114,11 @@ change_port() {
     echo "${GREEN}Порт изменен на $new_port. Перезапустите сервис для применения изменений.${NC}"
     press_any_key
 }
+
+copy_to_adminpanel() {
+    echo "${YELLOW}Копирование скрипта в ${ADMIN_PANEL_DIR}...${NC}"
+    mkdir -p "$ADMIN_PANEL_DIR"
+    cp "$0" "$ADMIN_PANEL_DIR/"
+    chmod +x "$ADMIN_PANEL_DIR/$(basename "$0")"
+    echo "${GREEN}[✓] Скрипт успешно скопирован в ${ADMIN_PANEL_DIR}${NC}"
+}

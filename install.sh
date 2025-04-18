@@ -1,6 +1,5 @@
 #!/bin/bash
-
-# Установочный скрипт для AdminAntizapret
+# Минималистичный установщик AdminAntizapret
 
 # Цвета для вывода
 RED='\033[0;31m'
@@ -9,42 +8,34 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Параметры установки
-REPO_URL="https://github.com/Kirito0098/AdminAntizapret-test.git"
 INSTALL_DIR="/opt/AdminAntizapret"
-ADMINPANEL_SCRIPT="$INSTALL_DIR/adminpanel.sh"
+REPO_URL="https://github.com/Kirito0098/AdminAntizapret-test.git"
+MAIN_SCRIPT="$INSTALL_DIR/adminpanel.sh"
 
-# Функция проверки ошибок
-check_error() {
-  if [ $? -ne 0 ]; then
-    echo -e "${RED}Ошибка: $1${NC}"
-    exit 1
-  fi
-}
-
-# Проверка прав root
+# Проверка root
 if [ "$(id -u)" -ne 0 ]; then
-  echo -e "${RED}Этот скрипт должен быть запущен с правами root!${NC}"
+  echo -e "${RED}Ошибка: этот скрипт требует прав root!${NC}" >&2
   exit 1
 fi
 
-# Установка необходимых пакетов
-echo -e "${YELLOW}Установка необходимых пакетов...${NC}"
-apt-get update -qq
-apt-get install -y -qq git wget curl > /dev/null 2>&1
-check_error "Не удалось установить зависимости"
-
 # Клонирование репозитория
-echo -e "${YELLOW}Клонирование репозитория AdminAntizapret...${NC}"
+echo -e "${YELLOW}Клонирование репозитория...${NC}"
 if [ -d "$INSTALL_DIR" ]; then
   echo -e "${YELLOW}Директория уже существует, обновляем...${NC}"
-  cd "$INSTALL_DIR" && git pull origin main > /dev/null 2>&1
+  cd "$INSTALL_DIR" && git pull
 else
-  git clone --quiet "$REPO_URL" "$INSTALL_DIR" > /dev/null
+  git clone "$REPO_URL" "$INSTALL_DIR"
 fi
-check_error "Не удалось клонировать репозиторий"
 
+# Проверка успешности клонирования
+if [ ! -f "$MAIN_SCRIPT" ]; then
+  echo -e "${RED}Ошибка: не удалось найти основной скрипт!${NC}" >&2
+  exit 1
+fi
 
-# Запуск панели управления
-echo -e "${GREEN}Установка завершена! Запуск панели управления...${NC}"
-sleep 2
-cd "$INSTALL_DIR" && bash "$ADMINPANEL_SCRIPT" --install
+# Установка прав
+chmod +x "$MAIN_SCRIPT"
+
+# Запуск основного скрипта
+echo -e "${GREEN}Установка завершена. Запускаем основной скрипт...${NC}"
+exec "$MAIN_SCRIPT"

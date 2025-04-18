@@ -23,26 +23,27 @@ ANTIZAPRET_INSTALL_SCRIPT="https://raw.githubusercontent.com/GubernievS/AntiZapr
 LOG_FILE="/var/log/adminpanel.log"
 INCLUDE_DIR="$INSTALL_DIR/script_sh"
 
-if [ -f "$INCLUDE_DIR/ssl_setup.sh" ]; then
-    . "$INCLUDE_DIR/ssl_setup.sh"
-else
-    echo "${RED}Ошибка: не найден файл ssl_setup.sh${NC}"
-    exit 1
-fi
+modules=(
+    "ssl_setup"
+    "backup_functions"
+    "monitoring"
+    "service_functions"
+    "uninstall"
+    "utils"
+    "user_management"
+)
+
+for module in "${modules[@]}"; do
+    if [ -f "$INCLUDE_DIR/${module}.sh" ]; then
+        . "$INCLUDE_DIR/${module}.sh"
+    else
+        echo "${RED}Ошибка: не найден файл ${module}.sh${NC}" >&2
+        exit 1
+    fi
+done
 
 # Генерируем случайный секретный ключ
 SECRET_KEY=$(openssl rand -hex 32)
-
-# Инициализация логгирования
-init_logging() {
-  touch "$LOG_FILE"
-  exec > >(tee -a "$LOG_FILE") 2>&1
-  log "Запуск скрипта"
-}
-
-log() {
-  echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
-}
 
 # Функция проверки занятости порта
 check_port() {
@@ -76,15 +77,6 @@ check_dependencies() {
     check_error "Не удалось установить зависимости"
 }
 
-# Функция проверки ошибок
-check_error() {
-  if [ $? -ne 0 ]; then
-    log "Ошибка при выполнении: $1"
-    printf "%s\n" "${RED}Ошибка при выполнении: $1${NC}" >&2
-    exit 1
-  fi
-}
-
 # Проверка прав root
 check_root() {
   if [ "$(id -u)" -ne 0 ]; then
@@ -92,17 +84,6 @@ check_root() {
     printf "%s\n" "${RED}Этот скрипт должен быть запущен с правами root!${NC}" >&2
     exit 1
   fi
-}
-
-# Ожидание нажатия клавиши
-press_any_key() {
-  printf "\n%s\n" "${YELLOW}Нажмите любую клавишу чтобы продолжить...${NC}"
-  read -r _
-}
-
-# Проверка установки AntiZapret-VPN
-check_antizapret_installed() {
-  [ -d "$ANTIZAPRET_INSTALL_DIR" ]
 }
 
 # Установка AntiZapret-VPN
@@ -144,100 +125,6 @@ install_antizapret() {
     exit 1
 }
 
-# Инициализация базы данных
-init_db() {
-  log "Инициализация базы данных"
-  echo "${YELLOW}Инициализация базы данных...${NC}"
-  PYTHONIOENCODING=utf-8 "$VENV_PATH/bin/python" "$INSTALL_DIR/init_db.py"
-  check_error "Не удалось инициализировать базу данных"
-}
-
-# Валидация конфигурации
-validate_config() {
-    local errors=0
-    
-    echo "${YELLOW}Проверка конфигурации...${NC}"
-    
-    if [ ! -f "$INSTALL_DIR/.env" ]; then
-        echo "${RED}Ошибка: .env файл не найден${NC}"
-        errors=$((errors+1))
-    fi
-    
-    if ! grep -q "SECRET_KEY=" "$INSTALL_DIR/.env"; then
-        echo "${RED}Ошибка: SECRET_KEY не установлен${NC}"
-        errors=$((errors+1))
-    fi
-    
-    if [ ! -f "$DB_FILE" ]; then
-        echo "${RED}Ошибка: База данных не найдена${NC}"
-        errors=$((errors+1))
-    fi
-    
-    if [ ! -f "/etc/systemd/system/$SERVICE_NAME.service" ]; then
-        echo "${RED}Ошибка: Сервис systemd не найден${NC}"
-        errors=$((errors+1))
-    fi
-    
-    if [ $errors -eq 0 ]; then
-        echo "${GREEN}Конфигурация в порядке.${NC}"
-        return 0
-    else
-        echo "${RED}Найдено $errors ошибок в конфигурации.${NC}"
-        return 1
-    fi
-}
-
-# Создание резервной копии
-create_backup() {
-    local backup_dir="/var/backups/antizapret"
-    local timestamp=$(date +%Y%m%d_%H%M%S)
-    local backup_file="$backup_dir/full_backup_$timestamp.tar.gz"
-    
-    log "Создание резервной копии в $backup_file"
-    echo "${YELLOW}Создание полной резервной копии...${NC}"
-    mkdir -p "$backup_dir"
-    
-    tar -czf "$backup_file" \
-        "$INSTALL_DIR" \
-        /etc/systemd/system/$SERVICE_NAME.service \
-        "$DB_FILE" \
-        /etc/ssl/certs/admin-antizapret.crt 2>/dev/null \
-        /etc/ssl/private/admin-antizapret.key 2>/dev/null \
-        /etc/letsencrypt/live/$DOMAIN 2>/dev/null
-    
-    if ! tar -tzf "$backup_file" >/dev/null; then
-        echo "${RED}Ошибка: резервная копия повреждена!${NC}"
-        rm -f "$backup_file"
-        return 1
-    fi
-    
-    echo "${GREEN}Резервная копия создана:${NC}"
-    ls -lh "$backup_file"
-    echo "Для восстановления используйте: $0 --restore $backup_file"
-    press_any_key
-}
-
-# Восстановление из резервной копии
-restore_backup() {
-    local backup_file=$1
-    
-    if [ ! -f "$backup_file" ]; then
-        echo "${RED}Файл резервной копии не найден!${NC}"
-        return 1
-    fi
-    
-    log "Восстановление из резервной копии $backup_file"
-    echo "${YELLOW}Восстановление из резервной копии...${NC}"
-    
-    systemctl stop $SERVICE_NAME 2>/dev/null
-    tar -xzf "$backup_file" -C /
-    systemctl daemon-reload
-    systemctl start $SERVICE_NAME
-    
-    log "Восстановление завершено"
-    echo "${GREEN}Восстановление завершено успешно!${NC}"
-}
-
 # Автоматическое обновление
 auto_update() {
     log "Проверка обновлений"
@@ -255,251 +142,6 @@ auto_update() {
     else
         echo "${GREEN}Система актуальна.${NC}"
     fi
-}
-
-# Мониторинг системы
-show_monitor() {
-    while true; do
-        clear
-        echo "${GREEN}┌────────────────────────────────────────────┐"
-        echo "│          Мониторинг системы              │"
-        echo "├────────────────────────────────────────────┤"
-        echo "│ 1. Проверить использование CPU            │"
-        echo "│ 2. Проверить использование памяти        │"
-        echo "│ 3. Проверить использование диска         │"
-        echo "│ 4. Просмотреть логи сервиса              │"
-        echo "│ 5. Проверить сетевые соединения          │"
-        echo "│ 0. Назад                                 │"
-        echo "└────────────────────────────────────────────┘${NC}"
-        
-        read -p "Выберите действие: " choice
-        case $choice in
-            1) top -bn1 | grep "Cpu(s)" ;;
-            2) free -h ;;
-            3) df -h ;;
-            4) journalctl -u $SERVICE_NAME -n 50 --no-pager ;;
-            5) netstat -tuln ;;
-            0) break ;;
-            *) echo "${RED}Неверный выбор!${NC}"; sleep 1 ;;
-        esac
-        press_any_key
-    done
-}
-
-# Удаление сервиса
-uninstall() {
-    printf "%s\n" "${YELLOW}Подготовка к удалению AdminAntizapret...${NC}"
-    printf "%s\n" "${RED}ВНИМАНИЕ! Это действие необратимо!${NC}"
-    
-    printf "Вы уверены, что хотите удалить AdminAntizapret? (y/n) "
-    read answer
-    
-    answer=$(echo "$answer" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
-
-    case "$answer" in
-        [Yy]*)
-            create_backup
-            
-            use_selfsigned=false
-            use_letsencrypt=false
-            
-            if grep -q "USE_HTTPS=true" "$INSTALL_DIR/.env" 2>/dev/null; then
-                if [ -f "/etc/ssl/certs/admin-antizapret.crt" ] && \
-                   [ -f "/etc/ssl/private/admin-antizapret.key" ]; then
-                    use_selfsigned=true
-                elif [ -d "/etc/letsencrypt/live/" ]; then
-                    use_letsencrypt=true
-                fi
-            fi
-            
-            printf "%s\n" "${YELLOW}Остановка сервиса...${NC}"
-            systemctl stop $SERVICE_NAME
-            systemctl disable $SERVICE_NAME
-            rm -f "/etc/systemd/system/$SERVICE_NAME.service"
-            systemctl daemon-reload
-            
-            if [ "$use_selfsigned" = true ]; then
-                printf "%s\n" "${YELLOW}Удаление самоподписанного сертификата...${NC}"
-                rm -f /etc/ssl/certs/admin-antizapret.crt
-                rm -f /etc/ssl/private/admin-antizapret.key
-            fi
-            
-            if [ "$use_letsencrypt" = true ]; then
-                printf "%s\n" "${YELLOW}Удаление Let's Encrypt сертификата...${NC}"
-                certbot delete --non-interactive --cert-name $DOMAIN 2>/dev/null || \
-                    echo "${YELLOW}Не удалось удалить сертификат Let's Encrypt${NC}"
-                crontab -l | grep -v 'certbot renew' | crontab -
-            fi
-            
-            printf "%s\n" "${YELLOW}Удаление файлов...${NC}"
-            rm -rf "$INSTALL_DIR"
-            rm -f "$LOG_FILE"
-            
-            printf "%s\n" "${YELLOW}Очистка зависимостей...${NC}"
-            apt-get autoremove -y --purge python3-venv python3-pip certbot >/dev/null 2>&1
-        
-            printf "%s\n" "${GREEN}Удаление завершено успешно!${NC}"
-            printf "Резервная копия сохранена в /var/backups/antizapret\n"
-            press_any_key
-            exit 0
-            ;;
-        *)
-            printf "%s\n" "${GREEN}Удаление отменено.${NC}"
-            press_any_key
-            return
-            ;;
-    esac
-}
-
-# Добавление администратора
-add_admin() {
-    echo "${YELLOW}Добавление нового администратора...${NC}"
-
-    while true; do
-        read -p "Введите логин администратора: " username
-        username=$(echo "$username" | tr -d '[:space:]')  
-        
-        if [ -z "$username" ]; then
-            echo "${RED}Логин не может быть пустым!${NC}"
-        elif [[ "$username" =~ [^a-zA-Z0-9_-] ]]; then
-            echo "${RED}Логин может содержать только буквы, цифры, '-' и '_'!${NC}"
-        else
-            break
-        fi
-    done
-    
-    # Запрос пароля с проверкой
-    while true; do
-        read -s -p "Введите пароль: " password
-        echo
-        read -s -p "Повторите пароль: " password_confirm
-        echo
-        
-        password=$(echo "$password" | xargs)
-        password_confirm=$(echo "$password_confirm" | xargs)
-        
-        if [ -z "$password" ]; then
-            echo "${RED}Пароль не может быть пустым!${NC}"
-        elif [ "$password" != "$password_confirm" ]; then
-            echo "${RED}Пароли не совпадают! Попробуйте снова.${NC}"
-        elif [ ${#password} -lt 8 ]; then
-            echo "${RED}Пароль должен содержать минимум 8 символов!${NC}"
-        else
-            break
-        fi
-    done
-
-    "$VENV_PATH/bin/python" "$INSTALL_DIR/init_db.py" --add-user "$username" "$password"
-    check_error "Не удалось добавить администратора"
-    press_any_key
-}
-
-# Удаление администратора
-delete_admin() {
-    echo "${YELLOW}Удаление администратора...${NC}"
-    
-    echo "${YELLOW}Список администраторов:${NC}"
-    "$VENV_PATH/bin/python" "$INSTALL_DIR/init_db.py" --list-users
-    if [ $? -ne 0 ]; then
-        echo "${RED}Ошибка при получении списка администраторов!${NC}"
-        press_any_key
-        return
-    fi
-
-    read -p "Введите логин администратора для удаления: " username
-    if [ -z "$username" ]; then
-        echo "${RED}Логин не может быть пустым!${NC}"
-        press_any_key
-        return
-    fi
-
-    "$VENV_PATH/bin/python" "$INSTALL_DIR/init_db.py" --delete-user "$username"
-    if [ $? -eq 0 ]; then
-        echo "${GREEN}Администратор '$username' успешно удалён!${NC}"
-    else
-        echo "${RED}Ошибка при удалении администратора '$username'!${NC}"
-    fi
-    press_any_key
-}
-
-# Перезапуск сервиса
-restart_service() {
-    echo "${YELLOW}Перезапуск сервиса...${NC}"
-    systemctl restart $SERVICE_NAME
-    check_status
-}
-
-# Проверка статуса
-check_status() {
-    echo "${YELLOW}Статус сервиса:${NC}"
-    systemctl status $SERVICE_NAME --no-pager -l
-    press_any_key
-}
-
-# Просмотр логов
-show_logs() {
-    echo "${YELLOW}Log File:${NC}"
-    journalctl -u $SERVICE_NAME -n 50 --no-pager
-    press_any_key
-}
-
-# Проверка обновлений
-check_updates() {
-    auto_update
-    press_any_key
-}
-
-# Проверка и установка прав выполнения для файлов
-check_and_set_permissions() {
-  echo "${YELLOW}Проверка и установка прав выполнения для client.sh и doall.sh...${NC}"
-  
-  files=("$INSTALL_DIR/client.sh" "$ANTIZAPRET_INSTALL_DIR/doall.sh")
-  for file in "${files[@]}"; do
-    if [ -f "$file" ]; then
-      if [ ! -x "$file" ]; then
-        chmod +x "$file"
-        if [ $? -eq 0 ]; then
-          echo "${GREEN}Права выполнения установлены для $file${NC}"
-        else
-          echo "${RED}Ошибка при установке прав выполнения для $file!${NC}"
-        fi
-      else
-        echo "${GREEN}Права выполнения уже установлены для $file${NC}"
-      fi
-    else
-      echo "${RED}Файл $file не найден!${NC}"
-    fi
-  done
-  
-  press_any_key
-}
-
-change_port() {
-    echo "${YELLOW}Изменение порта сервиса...${NC}"
-    read -p "Введите новый порт: " new_port
-    
-    # Проверка валидности порта
-    if ! [[ "$new_port" =~ ^[0-9]+$ ]] || [ "$new_port" -lt 1 ] || [ "$new_port" -gt 65535 ]; then
-        echo "${RED}Неверный номер порта! Должен быть от 1 до 65535.${NC}"
-        press_any_key
-        return
-    fi
-
-    # Проверка занятости порта (опционально)
-    if lsof -i :"$new_port" > /dev/null 2>&1; then
-        echo "${RED}Порт $new_port уже занят!${NC}"
-        press_any_key
-        return
-    fi
-
-    # Обновляем .env (заменяем существующее значение)
-    if [ -f "$INSTALL_DIR/.env" ]; then
-        sed -i "/^APP_PORT=/d" "$INSTALL_DIR/.env"
-    fi
-    echo "APP_PORT=$new_port" >> "$INSTALL_DIR/.env"
-
-    echo "${GREEN}Порт изменен на $new_port. Перезапустите сервис для применения изменений.${NC}"
-    press_any_key
 }
 
 # Главное меню

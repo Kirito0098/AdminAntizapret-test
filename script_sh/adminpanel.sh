@@ -203,6 +203,11 @@ install() {
     printf "└────────────────────────────────────────────┘\n"
     printf "%s\n" "${NC}"
 
+# Проверка установки AntiZapret-VPN
+check_antizapret_installed() {
+  [ -d "$ANTIZAPRET_INSTALL_DIR" ]
+}
+
     # Проверка установки AntiZapret-VPN
     echo "${YELLOW}Проверка установки AntiZapret-VPN...${NC}"
     if ! check_antizapret_installed; then

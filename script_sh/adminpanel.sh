@@ -71,9 +71,9 @@ check_port() {
 # Проверка зависимостей
 check_dependencies() {
     echo "${YELLOW}Установка зависимостей...${NC}" 
-    apt-get update --quiet --quiet && apt-get install -y --quiet --quiet python3 python3-pip git wget openssl python3-venv > /dev/null 
+    apt-get update --quiet --quiet && apt-get install -y --quiet --quiet python3 python3-pip git wget openssl python3-venv > /dev/null
+    echo "${GREEN}[✓] Готово${NC}"
     check_error "Не удалось установить зависимости"
-    echo "${GREEN}Зависимости установлены.${NC}"
 }
 
 # Функция проверки ошибок
@@ -583,6 +583,7 @@ install() {
     # Обновление пакетов
     echo "${YELLOW}Обновление списка пакетов...${NC}"
     apt-get update --quiet --quiet > /dev/null
+    echo "${GREEN}[✓] Готово${NC}"
     check_error "Не удалось обновить пакеты"
     
     # Проверка и установка зависимостей
@@ -591,11 +592,13 @@ install() {
     # Создание виртуального окружения
     echo "${YELLOW}Создание виртуального окружения...${NC}"
     python3 -m venv "$VENV_PATH"
+    echo "${GREEN}[✓] Готово${NC}"
     check_error "Не удалось создать виртуальное окружение"
 
     # Установка Python-зависимостей
     echo "${YELLOW}Установка Python-зависимостей...${NC}"
     "$VENV_PATH/bin/pip" install -q -r "$INSTALL_DIR/requirements.txt"
+    echo "${GREEN}[✓] Готово${NC}"
     check_error "Не удалось установить Python-зависимости"
 
     # Выбор способа установки

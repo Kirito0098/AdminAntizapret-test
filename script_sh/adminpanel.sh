@@ -572,7 +572,7 @@ install() {
             exit 1
         fi
     else
-        echo "${GREEN}[✓] AntiZapret-VPN уже установлен.${NC}"
+        echo "${GREEN}[✓] Готово${NC}"
     fi
     
     # Установка прав выполнения

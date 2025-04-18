@@ -609,8 +609,7 @@ check_status() {
 
 # Просмотр логов
 show_logs() {
-    echo "${YELLOW}Последние логи (Ctrl+C для выхода):${NC}"
-    journalctl -u $SERVICE_NAME -n 50 -f
+    journalctl -u $SERVICE_NAME -n 50 --no-pager
 }
 
 # Проверка обновлений

@@ -107,25 +107,41 @@ check_antizapret_installed() {
 
 # Установка AntiZapret-VPN
 install_antizapret() {
-    log "Попытка установки AntiZapret-VPN"
-    echo "${YELLOW}Установка AntiZapret-VPN (обязательный компонент)...${NC}"
+    log "Проверка наличия AntiZapret-VPN"
+    echo "${YELLOW}Проверка установленного AntiZapret-VPN...${NC}"
 
-    if ! bash <(wget --no-hsts -qO- "$ANTIZAPRET_INSTALL_SCRIPT"); then
-        log "Ошибка: сбой установки AntiZapret-VPN"
-        echo "${RED}Не удалось установить AntiZapret-VPN!${NC}"
-        echo "${YELLOW}Админ-панель требует AntiZapret-VPN для работы. Установка прервана.${NC}"
-        exit 1
+    # Функция проверки установки AntiZapret
+    check_antizapret_installed() {
+        if systemctl is-active --quiet antizapret.service 2>/dev/null; then
+            return 0
+        fi
+        if [ -d "/root/antizapret" ]; then
+            return 0
+        fi
+        return 1
+    }
+
+    # Проверяем установлен ли AntiZapret
+    if check_antizapret_installed; then
+        log "AntiZapret-VPN обнаружен в системе"
+        echo "${GREEN}AntiZapret-VPN уже установлен (обнаружен сервис или директория).${NC}"
+        return 0
     fi
 
-    if ! check_antizapret_installed; then
-        log "Ошибка: AntiZapret-VPN не обнаружен после установки"
-        echo "${RED}AntiZapret-VPN не установлен, хотя скрипт завершился без ошибок!${NC}"
-        echo "${YELLOW}Проверьте вручную: $ANTIZAPRET_INSTALL_DIR${NC}"
-        exit 1
-    fi
-
-    log "AntiZapret-VPN успешно установлен"
-    echo "${GREEN}AntiZapret-VPN установлен и готов к работе.${NC}"
+    log "AntiZapret-VPN не установлен"
+    echo "${RED}ВНИМАНИЕ! Модуль AntiZapret-VPN не установлен!${NC}"
+    echo ""
+    echo "${YELLOW}Это обязательный компонент для работы системы.${NC}"
+    echo "Пожалуйста, установите его вручную следующими командами:"
+    echo ""
+    echo "1. Скачайте и запустите установочный скрипт:"
+    echo "${CYAN} bash <(wget --no-hsts -qO- https://raw.githubusercontent.com/GubernievS/AntiZapret-VPN/main/setup.sh) | bash${NC}"
+    echo ""
+    echo "2. Затем запустите этот скрипт снова"
+    echo ""
+    echo "${YELLOW}Без этого модуля работа системы невозможна.${NC}"
+    echo ""
+    exit 1
 }
 
 # Инициализация базы данных
@@ -525,6 +541,7 @@ install() {
     printf "%s\n" "${NC}"
 
     # Проверка установки AntiZapret-VPN
+    echo "${YELLOW}Проверка установки AntiZapret-VPN...${NC}"
     if ! check_antizapret_installed; then
         install_antizapret
     fi

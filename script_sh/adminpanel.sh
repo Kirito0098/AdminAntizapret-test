@@ -354,14 +354,33 @@ uninstall() {
 # Добавление администратора
 add_admin() {
     echo "${YELLOW}Добавление нового администратора...${NC}"
+
+    while true; do
+        read -p "Введите логин администратора: " username
+        username=$(echo "$username" | tr -d '[:space:]')  
+        
+        if [ -z "$username" ]; then
+            echo "${RED}Логин не может быть пустым!${NC}"
+        elif [[ "$username" =~ [^a-zA-Z0-9_-] ]]; then
+            echo "${RED}Логин может содержать только буквы, цифры, '-' и '_'!${NC}"
+        else
+            break
+        fi
+    done
     
-    read -p "Введите логин администратора: " username
+    # Запрос пароля с проверкой
     while true; do
         read -s -p "Введите пароль: " password
         echo
         read -s -p "Повторите пароль: " password_confirm
         echo
-        if [ "$password" != "$password_confirm" ]; then
+        
+        password=$(echo "$password" | xargs)
+        password_confirm=$(echo "$password_confirm" | xargs)
+        
+        if [ -z "$password" ]; then
+            echo "${RED}Пароль не может быть пустым!${NC}"
+        elif [ "$password" != "$password_confirm" ]; then
             echo "${RED}Пароли не совпадают! Попробуйте снова.${NC}"
         elif [ ${#password} -lt 8 ]; then
             echo "${RED}Пароль должен содержать минимум 8 символов!${NC}"

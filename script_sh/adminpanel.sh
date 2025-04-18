@@ -565,11 +565,20 @@ install() {
     echo "${YELLOW}Проверка установки AntiZapret-VPN...${NC}"
     if ! check_antizapret_installed; then
         install_antizapret
+        # После установки делаем дополнительную проверку
+        if ! check_antizapret_installed; then
+            echo "${RED}[!] Критическая ошибка: AntiZapret-VPN не установлен!${NC}"
+            echo "${YELLOW}Админ-панель не может работать без AntiZapret. Установка прервана.${NC}"
+            exit 1
+        fi
+    else
+        echo "${GREEN}[✓] AntiZapret-VPN уже установлен.${NC}"
     fi
     
     # Установка прав выполнения
-    echo "${YELLOW}Установка прав выполнения...${NC}"
-    chmod +x "$INSTALL_DIR/client.sh" "$ANTIZAPRET_INSTALL_DIR/doall.sh" 2>/dev/null || true
+    echo "${YELLOW}Установка прав выполнения...${NC}" && \
+    chmod +x "$INSTALL_DIR/client.sh" "$ANTIZAPRET_INSTALL_DIR/doall.sh" 2>/dev/null || true && \
+    echo "${GREEN}[✓] Готово${NC}"
 
     # Обновление пакетов
     echo "${YELLOW}Обновление списка пакетов...${NC}"

@@ -355,6 +355,7 @@ create_backup() {
     echo "${GREEN}Резервная копия создана:${NC}"
     ls -lh "$backup_file"
     echo "Для восстановления используйте: $0 --restore $backup_file"
+    press_any_key
 }
 
 # Восстановление из резервной копии
@@ -557,12 +558,67 @@ check_status() {
 
 # Просмотр логов
 show_logs() {
+    echo "${YELLOW}Log File:${NC}"
     journalctl -u $SERVICE_NAME -n 50 --no-pager
+    press_any_key
 }
 
 # Проверка обновлений
 check_updates() {
     auto_update
+    press_any_key
+}
+
+# Проверка и установка прав выполнения для файлов
+check_and_set_permissions() {
+  echo "${YELLOW}Проверка и установка прав выполнения для client.sh и doall.sh...${NC}"
+  
+  files=("$INSTALL_DIR/client.sh" "$ANTIZAPRET_INSTALL_DIR/doall.sh")
+  for file in "${files[@]}"; do
+    if [ -f "$file" ]; then
+      if [ ! -x "$file" ]; then
+        chmod +x "$file"
+        if [ $? -eq 0 ]; then
+          echo "${GREEN}Права выполнения установлены для $file${NC}"
+        else
+          echo "${RED}Ошибка при установке прав выполнения для $file!${NC}"
+        fi
+      else
+        echo "${GREEN}Права выполнения уже установлены для $file${NC}"
+      fi
+    else
+      echo "${RED}Файл $file не найден!${NC}"
+    fi
+  done
+  
+  press_any_key
+}
+
+change_port() {
+    echo "${YELLOW}Изменение порта сервиса...${NC}"
+    read -p "Введите новый порт: " new_port
+    
+    # Проверка валидности порта
+    if ! [[ "$new_port" =~ ^[0-9]+$ ]] || [ "$new_port" -lt 1 ] || [ "$new_port" -gt 65535 ]; then
+        echo "${RED}Неверный номер порта! Должен быть от 1 до 65535.${NC}"
+        press_any_key
+        return
+    fi
+
+    # Проверка занятости порта (опционально)
+    if lsof -i :"$new_port" > /dev/null 2>&1; then
+        echo "${RED}Порт $new_port уже занят!${NC}"
+        press_any_key
+        return
+    fi
+
+    # Обновляем .env (заменяем существующее значение)
+    if [ -f "$INSTALL_DIR/.env" ]; then
+        sed -i "/^APP_PORT=/d" "$INSTALL_DIR/.env"
+    fi
+    echo "APP_PORT=$new_port" >> "$INSTALL_DIR/.env"
+
+    echo "${GREEN}Порт изменен на $new_port. Перезапустите сервис для применения изменений.${NC}"
     press_any_key
 }
 

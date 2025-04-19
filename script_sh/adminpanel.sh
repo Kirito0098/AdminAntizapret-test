@@ -339,16 +339,27 @@ main() {
             ;;
         *)
             if [ ! -f "/etc/systemd/system/$SERVICE_NAME.service" ]; then
-                printf "%s\n" "${YELLOW}AdminAntizapret не установлен.${NC}"
-                printf "Хотите установить? (y/n) "
-                read -r answer
-                    answer=$(echo "$answer" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
-                case $answer in
-                    [Yy]*) install; main_menu ;;
-                    *) exit 0 ;;
-                esac
-            else
-                main_menu
+        printf "%s\n" "${YELLOW}AdminAntizapret не установлен.${NC}"
+        while true; do
+            printf "Хотите установить? (y/n) "
+            read -r answer
+            answer=$(echo "$answer" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+            case $answer in
+                [Yy]*)
+                    install
+                    main_menu
+                    break
+                    ;;
+                [Nn]*)
+                    exit 0
+                    ;;
+                *)
+                    printf "%s\n" "${RED}Пожалуйста, введите только 'y' или 'n'${NC}"
+                    ;;
+            esac
+        done
+    else
+        main_menu
             fi
             ;;
     esac

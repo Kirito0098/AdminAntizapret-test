@@ -72,7 +72,8 @@ check_port() {
 # Проверка зависимостей
 check_dependencies() {
     echo "${YELLOW}Установка зависимостей...${NC}" 
-    apt-get update --quiet --quiet && apt-get install -y --quiet --quiet python3 python3-pip git wget openssl python3-venv > /dev/null
+    apt-get update --quiet --quiet && apt-get install -y --quiet --quiet apt-utils
+    apt-get install -y --quiet --quiet python3 python3-pip git wget openssl python3-venv > /dev/null
     echo "${GREEN}[✓] Готово${NC}"
     check_error "Не удалось установить зависимости"
 }

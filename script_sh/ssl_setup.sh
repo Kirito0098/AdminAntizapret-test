@@ -65,7 +65,7 @@ setup_letsencrypt() {
     certbot certonly --standalone --non-interactive --agree-tos -m $EMAIL -d $DOMAIN
     check_error "Не удалось получить сертификат Let's Encrypt"
 
-    (crontab -l 2>/dev/null; echo "0 60 * * * /usr/bin/certbot renew --quiet --pre-hook 'systemctl stop $SERVICE_NAME' --post-hook 'systemctl start $SERVICE_NAME'") | crontab -
+    (crontab -l 2>/dev/null; echo "0 3 1 * * /usr/bin/certbot renew --quiet --pre-hook 'systemctl stop $SERVICE_NAME' --post-hook 'systemctl start $SERVICE_NAME'") | crontab -
 
     cat >> "$INSTALL_DIR/.env" <<EOL
 USE_HTTPS=true

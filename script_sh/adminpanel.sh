@@ -1,6 +1,9 @@
 #!/bin/bash
 
 # Полный менеджер AdminAntizapret
+export LC_ALL="C.UTF-8"
+export LANG="C.UTF-8"
+
 # Цвета для вывода
 RED=$(printf '\033[31m')
 GREEN=$(printf '\033[32m')
